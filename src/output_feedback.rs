@@ -1,7 +1,7 @@
 //! The ``OutputFeedback`` uses the program output
 
 use core::fmt;
-use std::{fmt::Debug, marker::PhantomData, cmp::{min, max}, io::{self, BufReader, Read}, fs::File};
+use std::{fmt::Debug, marker::PhantomData, cmp::{min, max}, io::{self, BufReader, Read, Error}, fs::File};
 
 use crate::{OutputObserver, output_observer::ObserverWithOutput};
 
@@ -9,7 +9,7 @@ use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 
 use libafl::{
-    prelude::{Rand, Observer},
+    prelude::{Rand, Observer, HasBytesVec, Input},
     bolts::tuples::Named,
     events::EventFirer,
     executors::ExitKind,
@@ -17,7 +17,6 @@ use libafl::{
     inputs::UsesInput,
     observers::{ObserversTuple},
     state::{HasClientPerfMonitor, HasNamedMetadata, HasRand},
-    Error,
 };
 
 /// The prefix of the metadata names
@@ -84,18 +83,18 @@ impl<O, S> fmt::Debug for OutputFeedback<O, S> {
     }
 }
 
-impl<O, S> OutputFeedback<O, S>
-where 
-    S: HasNamedMetadata
-{
+pub struct LeakingHypertest<I> {
+    pub test_one: I,
+    pub test_two: I,
 }
 
-impl<O, S> Feedback<S> for OutputFeedback<O, S>
-where
+impl<O, S> OutputFeedback<O, S>
+where 
     O: ObserverWithOutput + Named + Debug,
     S: UsesInput + Debug + HasNamedMetadata + HasClientPerfMonitor + HasRand,
+    S::Input: HasBytesVec
 {
-    fn init_state(&mut self, state: &mut S) -> Result<(), Error> {
+    pub fn init_state(&mut self, state: &mut S) -> Result<(), Error> {
         state.add_named_metadata(
             OutputFeedbackMetadata::new(),
             &self.name
@@ -103,15 +102,14 @@ where
         Ok(())
     }
 
-    #[allow(clippy::wrong_self_convention)]
-    fn is_interesting<EM, OT>(
+    pub fn exposes_leak<EM, OT>(
         &mut self,
         state: &mut S,
         _manager: &mut EM,
         _input: &<S as UsesInput>::Input,
         observers: &OT,
         _exit_kind: &ExitKind,
-    ) -> Result<bool, Error>
+    ) -> Option<LeakingHypertest<S::Input>>
     where
         EM: EventFirer<State = S>,
         OT: ObserversTuple<S>,
@@ -195,7 +193,8 @@ where
         //     }
         // }
 
-        Ok(false)
+        // Ok(LeakingHypertest { test_one: , test_two: () })
+        None
     }
 }
 

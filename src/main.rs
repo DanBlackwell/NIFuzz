@@ -23,18 +23,20 @@ use libafl::{
     monitors::SimpleMonitor,
     mutators::{scheduled::havoc_mutations, tokens_mutations, StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
-    schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler},
+    schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler, MinimizerScheduler, LenTimeMulTestcaseScore},
     stages::mutational::StdMutationalStage,
-    state::{HasCorpus, HasMetadata, StdState}, prelude::RomuDuoJrRand,
+    state::{HasCorpus, HasMetadata, StdState}, prelude::{RomuDuoJrRand, MapIndexesMetadata, CombinedFeedback, MapFeedback, DifferentIsNovel, MaxReducer, LogicEagerOr, LogicFastAnd},
 };
 use nix::sys::signal::Signal;
 
 mod output_observer;
 mod output_feedback;
 mod output_forkserver;
+mod output_leak_fuzzer;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
-use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput};
+use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, output_leak_fuzzer::InfoLeakChecker};
+use output_leak_fuzzer::LeakFuzzer;
 
 
 
@@ -127,8 +129,7 @@ pub fn main() {
         // New maximization map feedback linked to the edges observer and the feedback state
         MaxMapFeedback::tracking(&edges_observer, true, false),
         // Time feedback, this one does not need a feedback state
-        TimeFeedback::with_observer(&time_observer),
-        output_feedback
+        TimeFeedback::with_observer(&time_observer)
     );
 
     // A feedback to choose if an input is a solution or not
@@ -169,7 +170,7 @@ pub fn main() {
     let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
 
     // A fuzzer with feedbacks and a corpus scheduler
-    let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
+    let mut fuzzer: LeakFuzzer<MinimizerScheduler<QueueScheduler<StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, LenTimeMulTestcaseScore<StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, MapIndexesMetadata>, CombinedFeedback<MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>, u8>, TimeFeedback, LogicEagerOr, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, CombinedFeedback<CrashFeedback, MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>, u8>, LogicFastAnd, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, (TimeObserver, (HitcountsMapObserver<StdMapObserver<'_, u8, false>>, (OutputObserver, ()))), InfoLeakChecker<BytesInput>> = LeakFuzzer::new(scheduler, feedback, objective);
 
     // If we should debug the child
     // let debug_child = opt.debug_child;
