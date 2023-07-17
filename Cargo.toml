@@ -31,6 +31,9 @@ hashbrown = "0.14.0"
 nonblock = "0.2.0"
 libc = "0.2.147"
 log = "0.4.19"
+ahash = "0.8.3"
+base64 = "0.21.2"
+serde_json = "1.0.102"
 
 [lib]
 name = "libforkserver_libafl_cc"

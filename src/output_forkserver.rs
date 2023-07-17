@@ -43,7 +43,7 @@ use libafl::{
     Error,
 };
 
-const FORKSRV_FD: i32 = 198;
+// const FORKSRV_FD: i32 = 198;
 #[allow(clippy::cast_possible_wrap)]
 const FS_OPT_ENABLED: i32 = 0x80000001_u32 as i32;
 #[allow(clippy::cast_possible_wrap)]
@@ -380,6 +380,7 @@ where
                     self.observers_mut().observe_stdout(&stdout);
                     let stderr = self.executor.forkserver_mut().fetch_stderr();
                     self.observers_mut().observe_stderr(&stderr);
+                    // println!("stdout: {:?}, stderr: {:?}", std::str::from_utf8(&stdout), stderr);
                 }
             }
         } else {

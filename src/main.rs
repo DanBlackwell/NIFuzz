@@ -23,6 +23,12 @@ use libafl::{
     monitors::SimpleMonitor,
     mutators::{scheduled::havoc_mutations, tokens_mutations, StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
+    prelude::{
+        BitFlipMutator, ByteFlipMutator, ByteIncMutator, ByteDecMutator, 
+        ByteNegMutator, ByteRandMutator, ByteAddMutator, WordAddMutator, 
+        DwordAddMutator, QwordAddMutator, ByteInterestingMutator, WordInterestingMutator, 
+        DwordInterestingMutator
+    },
     schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler, MinimizerScheduler, LenTimeMulTestcaseScore},
     stages::mutational::StdMutationalStage,
     state::{HasCorpus, HasMetadata, StdState}, prelude::{RomuDuoJrRand, MapIndexesMetadata, CombinedFeedback, MapFeedback, DifferentIsNovel, MaxReducer, LogicEagerOr, LogicFastAnd},
@@ -33,10 +39,17 @@ mod output_observer;
 mod output_feedback;
 mod output_forkserver;
 mod output_leak_fuzzer;
+mod pub_sec_input;
+mod pub_sec_mutational;
+mod pub_sec_mutations;
+mod pub_sec_scheduled_mutator;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
 use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, output_leak_fuzzer::InfoLeakChecker};
 use output_leak_fuzzer::LeakFuzzer;
+use pub_sec_input::PubSecBytesInput;
+use pub_sec_mutational::StdPubSecMutationalStage;
+use pub_sec_scheduled_mutator::PubSecScheduledMutator;
 
 
 
@@ -121,7 +134,7 @@ pub fn main() {
     let time_observer = TimeObserver::new("time");
 
     let output_observer = OutputObserver::new("output".to_string());
-    let output_feedback: OutputFeedback<OutputObserver, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>> = OutputFeedback::with_names("output_feedback", "output");
+    let output_feedback: OutputFeedback<OutputObserver, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>> = OutputFeedback::with_names("output_feedback", "output");
 
     // Feedback to rate the interestingness of an input
     // This one is composed by two Feedbacks in OR
@@ -147,7 +160,7 @@ pub fn main() {
         // RNG
         StdRand::with_seed(current_nanos()),
         // Corpus that will be evolved, we keep it in memory for performance
-        InMemoryCorpus::<BytesInput>::new(),
+        InMemoryCorpus::<PubSecBytesInput>::new(),
         // Corpus in which we store solutions (crashes in this example),
         // on disk so the user can get them after stopping the fuzzer
         OnDiskCorpus::new(PathBuf::from("./crashes")).unwrap(),
@@ -170,7 +183,7 @@ pub fn main() {
     let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
 
     // A fuzzer with feedbacks and a corpus scheduler
-    let mut fuzzer: LeakFuzzer<MinimizerScheduler<QueueScheduler<StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, LenTimeMulTestcaseScore<StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, MapIndexesMetadata>, CombinedFeedback<MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>, u8>, TimeFeedback, LogicEagerOr, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, CombinedFeedback<CrashFeedback, MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>, u8>, LogicFastAnd, StdState<BytesInput, InMemoryCorpus<BytesInput>, RomuDuoJrRand, OnDiskCorpus<BytesInput>>>, (TimeObserver, (HitcountsMapObserver<StdMapObserver<'_, u8, false>>, (OutputObserver, ()))), InfoLeakChecker<BytesInput>> = LeakFuzzer::new(scheduler, feedback, objective);
+    let mut fuzzer: LeakFuzzer<MinimizerScheduler<QueueScheduler<StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, LenTimeMulTestcaseScore<StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, MapIndexesMetadata>, CombinedFeedback<MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>, u8>, TimeFeedback, LogicEagerOr, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, CombinedFeedback<CrashFeedback, MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>, u8>, LogicFastAnd, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, (TimeObserver, (HitcountsMapObserver<StdMapObserver<'_, u8, false>>, (OutputObserver, ()))), InfoLeakChecker<PubSecBytesInput>> = LeakFuzzer::new(scheduler, feedback, objective);
 
     // If we should debug the child
     // let debug_child = opt.debug_child;
@@ -219,10 +232,27 @@ pub fn main() {
 
     state.add_metadata(tokens);
 
+    let mutations = tuple_list!(
+        BitFlipMutator::new(),
+        ByteFlipMutator::new(),
+        ByteIncMutator::new(),
+        ByteDecMutator::new(),
+        ByteNegMutator::new(),
+        ByteRandMutator::new(),
+        ByteAddMutator::new(),
+        WordAddMutator::new(),
+        DwordAddMutator::new(),
+        QwordAddMutator::new(),
+        ByteInterestingMutator::new(),
+        WordInterestingMutator::new(),
+        DwordInterestingMutator::new(),
+    );
+
     // Setup a mutational stage with a basic bytes mutator
     let mutator =
-        StdScheduledMutator::with_max_stack_pow(havoc_mutations().merge(tokens_mutations()), 6);
-    let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+        PubSecScheduledMutator::with_max_stack_pow(mutations, 6);
+    // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+    let mut stages = tuple_list!(StdPubSecMutationalStage::new(mutator));
 
     fuzzer
         .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)

@@ -4,11 +4,15 @@ extern crate alloc;
 use alloc::string::ToString;
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
+use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::pub_sec_input::PubSecInput;
+use crate::output_observer::{ObserverWithOutput, OutputObserver};
+
 #[cfg(feature = "introspection")]
-use crate::monitors::PerfFeature;
+use libafl::monitors::PerfFeature;
 use libafl::{
     bolts::current_time,
     corpus::{Corpus, CorpusId, HasTestcase, Testcase},
@@ -17,7 +21,7 @@ use libafl::{
     feedbacks::Feedback,
     inputs::UsesInput,
     mark_feature_time,
-    observers::ObserversTuple,
+    observers::{Observer, ObserversTuple},
     schedulers::Scheduler,
     stages::StagesTuple,
     start_timer,
@@ -40,6 +44,11 @@ pub enum LeakExecuteInputResult {
     InfoLeak,
     /// This input leads to a solution
     Solution,
+}
+
+pub struct OutputData<'a> {
+    pub stdout: &'a [u8],
+    pub stderr: &'a [u8]
 }
 
 pub struct IOHashValue {
@@ -65,14 +74,21 @@ pub struct FailingHypertest<I> {
     test_two: I
 }
 
-pub trait HypertestFeedback<I> where I: Input + HasBytesVec {
+pub trait HypertestFeedback<I, S, OT> 
+where 
+    I: Input + HasBytesVec,
+    S: HasCorpus,
+    OT: ObserversTuple<S> + Serialize + DeserializeOwned,
+{
     fn new() -> Self;
-    fn exposes_fault(&self, input: &I) -> Option<FailingHypertest<I>>;
+    fn exposes_fault(&mut self, input: &I, observers: &OT) -> Option<FailingHypertest<I>>;
 }
 
-impl<I> HypertestFeedback<I> for InfoLeakChecker<I>
+impl<I, S, OT> HypertestFeedback<I, S, OT> for InfoLeakChecker<I>
 where
-    I: Input + HasBytesVec
+    I: Input + PubSecInput,
+    S: HasCorpus,
+    OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
     fn new() -> Self {
         Self {
@@ -81,8 +97,78 @@ where
         }
     }
 
-    fn exposes_fault(&self, input: &I) -> Option<FailingHypertest<I>> {
+    fn exposes_fault(&mut self, input: &I, observers: &OT) -> Option<FailingHypertest<I>> {
+        let observer = observers.match_name::<OutputObserver>("output").unwrap();
+
+        let empty = Vec::new();
+        let stdout = match observer.stdout() {
+            None => &empty,
+            Some(o) => o
+        };
+        let stderr = match observer.stdout() {
+            None => &empty,
+            Some(o) => o
+        };
+
+        let output_data = OutputData { stdout, stderr };
+
         println!("input: {:?}", input.bytes());
+        let hash = |val: &[u8]| {
+            let mut hasher = DefaultHasher::new();
+            val.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let pub_in_hash = hash(input.get_public_part_bytes());
+        let sec_in_hash = hash(input.get_secret_part_bytes());
+
+        let mut hasher = DefaultHasher::new();
+        output_data.stdout.hash(&mut hasher);
+        output_data.stderr.hash(&mut hasher);
+        let pub_out_hash = hasher.finish();
+
+        if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+            if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                if hash_val.secret_input_hashes.contains(&sec_in_hash) {
+                    panic!("Likely non-determinism");
+                }
+
+                let mut matches = false;
+                for secret_in in &hash_val.secret_inputs_full {
+                    if input.get_secret_part_bytes() == secret_in {
+                        matches = true;
+                        break;
+                    }
+                }
+
+                if !matches {
+                    hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                    if hash_val.secret_inputs_full.len() % 2 == 0 {
+                        println!("Found a leak!");
+                        return Some(FailingHypertest {
+                            test_one: I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(), 
+                                &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
+                            ),
+                            test_two: I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(),
+                                input.get_secret_part_bytes()
+                            )
+                        });
+                    }
+                }
+            }
+        } else {
+            self.dict.insert(pub_in_hash, IOHashValue {
+                public_input_full: None,
+                public_input_hash: pub_in_hash,
+                public_output_hashes: vec![pub_out_hash],
+                public_outputs_full: Vec::new(),
+                secret_input_hashes: vec![sec_in_hash],
+                secret_inputs_full: Vec::new()
+            });
+        }
+
         None
     }
 }
@@ -97,7 +183,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus + UsesInput,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     scheduler: CS,
     feedback: F,
@@ -113,7 +200,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     type State = CS::State;
 }
@@ -125,7 +213,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     type Scheduler = CS;
 
@@ -145,7 +234,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     type Feedback = F;
 
@@ -165,7 +255,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     type Objective = OF;
 
@@ -184,10 +275,10 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions + HasCorpus,
+    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
     <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Evaluate if a set of observation channels has an interesting state
     fn process_execution<EM>(
@@ -232,7 +323,21 @@ where
             }
         }
 
-        let failing_hypertest = self.hypertest_feedback.exposes_fault(&input);
+        // if let Some(observer) = observers.match_name::<OutputObserver>("output") {
+        //     let empty = Vec::new();
+        //     let stdout = match observer.stdout() {
+        //         None => &empty,
+        //         Some(o) => o
+        //     };
+        //     let stderr = match observer.stdout() {
+        //         None => &empty,
+        //         Some(o) => o
+        //     };
+
+        //     let output_data = OutputData { stdout, stderr };
+
+            let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, observers);
+        // }
 
         match res {
             ExecuteInputResult::None => {
@@ -309,7 +414,7 @@ where
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
     <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
     #[inline]
@@ -345,7 +450,7 @@ where
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
     <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
     #[inline]
@@ -441,7 +546,8 @@ where
     CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase,
     ST: StagesTuple<E, EM, CS::State, Self>,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     fn fuzz_one(
         &mut self,
@@ -498,7 +604,8 @@ where
     OF: Feedback<CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Create a new `LeakFuzzer` with standard behavior.
     pub fn new(scheduler: CS, feedback: F, objective: OF) -> Self {
@@ -553,7 +660,9 @@ where
     EM: UsesState<State = CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
     <CS::State as UsesInput>::Input: HasBytesVec,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
+    // OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
+    E::Observers: Serialize + DeserializeOwned,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, E::Observers>,
 {
     /// Runs the input and triggers observers and feedback
     fn execute_input(

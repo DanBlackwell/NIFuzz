@@ -1,3 +1,5 @@
+mod output_forkserver;
+
 use libafl_targets::{map_shared_memory, start_forkserver};
 
 #[no_mangle]
