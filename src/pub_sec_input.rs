@@ -39,7 +39,7 @@ pub struct PubSecBytesInput {
     current_mutate_target: CurrentMutateTarget
 }
 
-pub trait PubSecInput: HasBytesVec {
+pub trait PubSecInput { // : HasBytesVec {
     fn from_pub_sec_bytes(public: &[u8], secret: &[u8]) -> Self;
     fn get_public_part_bytes(&self) -> &[u8];
     fn get_secret_part_bytes(&self) -> &[u8];
@@ -188,7 +188,7 @@ impl Input for PubSecBytesInput {
     /// Generate a name for this input
     fn generate_name(&self, _idx: usize) -> String {
         let mut hasher = RandomState::with_seeds(0, 0, 0, 0).build_hasher();
-        hasher.write(self.bytes());
+        hasher.write(&self.raw_bytes);
         format!("{:016x}", hasher.finish())
     }
 }
@@ -200,18 +200,18 @@ impl From<PubSecBytesInput> for Rc<RefCell<PubSecBytesInput>> {
     }
 }
 
-impl HasBytesVec for PubSecBytesInput {
-    #[inline]
-    fn bytes(&self) -> &[u8] {
-        &self.raw_bytes
-    }
+// impl HasBytesVec for PubSecBytesInput {
+//     #[inline]
+//     fn bytes(&self) -> &[u8] {
+//         &self.raw_bytes
+//     }
 
-    /// this is only used for mutations, if this changes we need to be more careful here...
-    #[inline]
-    fn bytes_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.raw_bytes
-    }
-}
+//     /// this is only used for mutations, if this changes we need to be more careful here...
+//     #[inline]
+//     fn bytes_mut(&mut self) -> &mut Vec<u8> {
+//         &mut self.raw_bytes
+//     }
+// }
 
 impl HasTargetBytes for PubSecBytesInput {
     /// Note that this is what gets passed to the SUT, so format needs to be SUT readable

@@ -40,16 +40,17 @@ mod output_feedback;
 mod output_forkserver;
 mod output_leak_fuzzer;
 mod pub_sec_input;
-mod pub_sec_mutational;
+// mod pub_sec_mutational;
 mod pub_sec_mutations;
-mod pub_sec_scheduled_mutator;
+// mod pub_sec_scheduled_mutator;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
 use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, output_leak_fuzzer::InfoLeakChecker};
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
-use pub_sec_mutational::StdPubSecMutationalStage;
-use pub_sec_scheduled_mutator::PubSecScheduledMutator;
+// use pub_sec_mutational::StdPubSecMutationalStage;
+// use pub_sec_scheduled_mutator::PubSecScheduledMutator;
+use pub_sec_mutations::PubSecBitFlipMutator;
 
 
 
@@ -233,26 +234,27 @@ pub fn main() {
     state.add_metadata(tokens);
 
     let mutations = tuple_list!(
-        BitFlipMutator::new(),
-        ByteFlipMutator::new(),
-        ByteIncMutator::new(),
-        ByteDecMutator::new(),
-        ByteNegMutator::new(),
-        ByteRandMutator::new(),
-        ByteAddMutator::new(),
-        WordAddMutator::new(),
-        DwordAddMutator::new(),
-        QwordAddMutator::new(),
-        ByteInterestingMutator::new(),
-        WordInterestingMutator::new(),
-        DwordInterestingMutator::new(),
+        PubSecBitFlipMutator::new(),
+        // BitFlipMutator::new(),
+        // ByteFlipMutator::new(),
+        // ByteIncMutator::new(),
+        // ByteDecMutator::new(),
+        // ByteNegMutator::new(),
+        // ByteRandMutator::new(),
+        // ByteAddMutator::new(),
+        // WordAddMutator::new(),
+        // DwordAddMutator::new(),
+        // QwordAddMutator::new(),
+        // ByteInterestingMutator::new(),
+        // WordInterestingMutator::new(),
+        // DwordInterestingMutator::new(),
     );
 
     // Setup a mutational stage with a basic bytes mutator
     let mutator =
-        PubSecScheduledMutator::with_max_stack_pow(mutations, 6);
+        StdScheduledMutator::with_max_stack_pow(mutations, 6);
     // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
-    let mut stages = tuple_list!(StdPubSecMutationalStage::new(mutator));
+    let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 
     fuzzer
         .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)

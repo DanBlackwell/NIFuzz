@@ -76,7 +76,7 @@ pub struct FailingHypertest<I> {
 
 pub trait HypertestFeedback<I, S, OT> 
 where 
-    I: Input + HasBytesVec,
+    I: Input, //  + HasBytesVec,
     S: HasCorpus,
     OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
@@ -112,7 +112,7 @@ where
 
         let output_data = OutputData { stdout, stderr };
 
-        println!("input: {:?}", input.bytes());
+        // println!("input: {:?}", input.bytes());
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
             val.hash(&mut hasher);
@@ -182,7 +182,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus + UsesInput,
-    <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -199,7 +198,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -212,7 +210,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -233,7 +230,7 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -254,7 +251,7 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -276,8 +273,8 @@ where
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Evaluate if a set of observation channels has an interesting state
@@ -412,8 +409,8 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
@@ -448,8 +445,8 @@ where
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input + HasBytesVec,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
@@ -545,7 +542,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase,
     ST: StagesTuple<E, EM, CS::State, Self>,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -603,7 +600,7 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -659,7 +656,7 @@ where
     E: Executor<EM, Self> + HasObservers<State = CS::State>,
     EM: UsesState<State = CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
-    <CS::State as UsesInput>::Input: HasBytesVec,
+    // <CS::State as UsesInput>::Input: HasBytesVec,
     // OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     E::Observers: Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, E::Observers>,
