@@ -31,7 +31,11 @@ int main(int argc, char **argv) {
   unsigned int len = __AFL_FUZZ_TESTCASE_LEN;
   unsigned int public_len = *(unsigned int *)buf;
   unsigned int secret_len = len - public_len - sizeof(public_len);
-  printf("total len: %u, public: %u, secret:%u\n", len, public_len, secret_len);
+  // printf("total len: %u, public: %u, secret:%u\n", len, public_len, secret_len);
+
+  if (secret_len >= 2 && !memcmp(buf + public_len, "TE", 2)) {
+    printf("Found it!\n");
+  }
 
 //   printf("input: %s\n", buf);
   if (buf[0] == 'b') {

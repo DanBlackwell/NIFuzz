@@ -50,7 +50,12 @@ use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 // use pub_sec_mutational::StdPubSecMutationalStage;
 // use pub_sec_scheduled_mutator::PubSecScheduledMutator;
-use pub_sec_mutations::PubSecBitFlipMutator;
+use pub_sec_mutations::{
+    PubSecBitFlipMutator, PubSecByteFlipMutator, PubSecByteAddMutator, PubSecByteDecMutator, PubSecByteIncMutator,
+    PubSecByteInterestingMutator, PubSecByteNegMutator, PubSecByteRandMutator, PubSecBytesDeleteMutator,
+    PubSecWordAddMutator, PubSecDwordAddMutator, PubSecQwordAddMutator,
+    PubSecWordInterestingMutator, PubSecDwordInterestingMutator
+};
 
 
 
@@ -235,6 +240,21 @@ pub fn main() {
 
     let mutations = tuple_list!(
         PubSecBitFlipMutator::new(),
+        PubSecByteDecMutator::new(),
+        PubSecByteFlipMutator::new(),
+        PubSecByteIncMutator::new(),
+        PubSecByteNegMutator::new(),
+        PubSecByteRandMutator::new(),
+        PubSecBytesDeleteMutator::new(),
+
+        PubSecByteAddMutator::new(),
+        PubSecWordAddMutator::new(),
+        PubSecDwordAddMutator::new(),
+        PubSecQwordAddMutator::new(),
+
+        PubSecByteInterestingMutator::new(),
+        PubSecWordInterestingMutator::new(),
+        PubSecDwordInterestingMutator::new(),
         // BitFlipMutator::new(),
         // ByteFlipMutator::new(),
         // ByteIncMutator::new(),

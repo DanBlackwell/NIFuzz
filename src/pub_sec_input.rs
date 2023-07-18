@@ -4,6 +4,7 @@ use core::{
     cell::RefCell,
     convert::{From, AsRef},
     hash::{BuildHasher, Hasher},
+    ops::Range,
 };
 #[cfg(feature = "std")]
 use std::{fs::File, io::Read, path::Path};
@@ -48,6 +49,7 @@ pub trait PubSecInput { // : HasBytesVec {
     fn get_current_bytesinput(&self) -> BytesInput;
     fn update_current_from_bytesinput(&mut self, mutated_input: &BytesInput);
     fn get_mutable_current_buf_seg(&mut self) -> &mut [u8];
+    fn remove_bytes_in_range(&mut self, range: Range<usize>);
 }
 
 impl PubSecInput for PubSecBytesInput {
@@ -130,6 +132,38 @@ impl PubSecInput for PubSecBytesInput {
             CurrentMutateTarget::Secret => &mut self.raw_bytes[public_end..],
             CurrentMutateTarget::All => &mut self.raw_bytes[len_indicator..]
         }
+    }
+
+    fn remove_bytes_in_range(&mut self, range: Range<usize>) {
+        if range.is_empty() { return; }
+
+        let len_indicator = std::mem::size_of::<u32>();
+        match self.current_mutate_target {
+            CurrentMutateTarget::Public => {
+                let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
+                self.raw_bytes.drain(adjusted);
+                self.public_len -= range.end - range.start;
+            },
+            CurrentMutateTarget::Secret => {
+                let offset = len_indicator + self.public_len;
+                let adjusted = (range.start + offset)..(range.end + offset);
+                self.raw_bytes.drain(adjusted);
+            },
+            CurrentMutateTarget::All => {
+                if range.start < self.public_len {
+                    if range.end > self.public_len {
+                        // println!("removing range {:?}, lens before: public {}, total {}; after: public {}",
+                        //     range, self.public_len, self.raw_bytes.len() - 4, range.start);
+                        self.public_len = range.start;
+                    } else {
+                        self.public_len -= range.end - range.start;
+                    }
+                }
+
+                let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
+                self.raw_bytes.drain(adjusted);
+            }
+        }    
     }
 }
 
