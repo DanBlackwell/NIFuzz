@@ -21,7 +21,8 @@ cc = { version = "1.0", features = ["parallel"] }
 which = { version = "4.0.2" }
 
 [dependencies]
-libafl = { path = "../../libafl/", features = ["default"] }
+# libafl = { path = "../../libafl/", features = ["default"] }
+libafl = "0.10.1"
 clap = { version = "4.0", features = ["derive"] }
 nix = "0.26"
 libafl_targets = { path = "../../libafl_targets/" }

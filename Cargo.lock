@@ -360,7 +360,7 @@ dependencies = [
  "cc",
  "clap",
  "hashbrown 0.14.0",
- "libafl",
+ "libafl 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "libafl_cc",
  "libafl_targets",
  "libc",
@@ -613,6 +613,47 @@ dependencies = [
  "hashbrown 0.13.2",
  "hostname",
  "intervaltree",
+ "libc",
+ "libm",
+ "lock_api",
+ "log",
+ "nix",
+ "nonblock",
+ "num-traits",
+ "num_enum",
+ "once_cell",
+ "postcard",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "serial_test 2.0.0",
+ "tui",
+ "tuple_list",
+ "typed-builder",
+ "uds",
+ "uuid",
+ "wait-timeout",
+ "windows",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "libafl"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dcef528afdb9f8fae3b998d50565189b4f9e573ee557d0e43302787e2f187f6"
+dependencies = [
+ "ahash",
+ "backtrace",
+ "bincode",
+ "byteorder",
+ "c2rust-bitfields",
+ "crossterm 0.26.1",
+ "ctor",
+ "erased-serde",
+ "hashbrown 0.13.2",
+ "hostname",
+ "intervaltree",
  "libafl_derive",
  "libc",
  "libm",
@@ -620,7 +661,6 @@ dependencies = [
  "log",
  "miniz_oxide 0.7.1",
  "nix",
- "nonblock",
  "num-traits",
  "num_enum",
  "once_cell",
@@ -630,7 +670,8 @@ dependencies = [
  "rustversion",
  "serde",
  "serde_json",
- "serial_test",
+ "serial_test 1.0.0",
+ "static_assertions",
  "tui",
  "tuple_list",
  "typed-builder",
@@ -655,6 +696,8 @@ dependencies = [
 [[package]]
 name = "libafl_derive"
 version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f560e150e1686a0bc4ec3af1cff46b916b32b0fc42c15732ed800e0ac8689b4c"
 dependencies = [
  "quote",
  "syn 2.0.23",
@@ -665,7 +708,7 @@ name = "libafl_targets"
 version = "0.10.1"
 dependencies = [
  "cc",
- "libafl",
+ "libafl 0.10.1",
  "log",
  "rangemap",
  "serde",
@@ -1011,6 +1054,20 @@ dependencies = [
 
 [[package]]
 name = "serial_test"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "538c30747ae860d6fb88330addbbd3e0ddbe46d662d032855596d8a8ca260611"
+dependencies = [
+ "dashmap",
+ "futures",
+ "lazy_static",
+ "log",
+ "parking_lot",
+ "serial_test_derive 1.0.0",
+]
+
+[[package]]
+name = "serial_test"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
@@ -1020,7 +1077,18 @@ dependencies = [
  "lazy_static",
  "log",
  "parking_lot",
- "serial_test_derive",
+ "serial_test_derive 2.0.0",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "079a83df15f85d89a68d64ae1238f142f172b1fa915d0d76b26a7cba1b659a69"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
