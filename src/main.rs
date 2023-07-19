@@ -50,16 +50,7 @@ use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 // use pub_sec_mutational::StdPubSecMutationalStage;
 // use pub_sec_scheduled_mutator::PubSecScheduledMutator;
-use pub_sec_mutations::{
-    PubSecBitFlipMutator, PubSecByteFlipMutator, PubSecByteAddMutator, PubSecByteDecMutator, PubSecByteIncMutator,
-    PubSecByteInterestingMutator, PubSecByteNegMutator, PubSecByteRandMutator, PubSecBytesDeleteMutator,
-    PubSecWordAddMutator, PubSecDwordAddMutator, PubSecQwordAddMutator,
-    PubSecWordInterestingMutator, PubSecDwordInterestingMutator,
-    PubSecBytesExpandMutator, PubSecBytesInsertMutator, PubSecBytesRandInsertMutator, PubSecBytesSetMutator,
-    PubSecBytesRandSetMutator, PubSecBytesCopyMutator, 
-    PubSecCrossoverInsertMutator, PubSecCrossoverReplaceMutator,
-
-};
+use pub_sec_mutations::pub_sec_mutations;
 
 
 
@@ -242,38 +233,39 @@ pub fn main() {
 
     state.add_metadata(tokens);
 
-    let mutations = tuple_list!(
-        PubSecBitFlipMutator::new(),
-        PubSecByteDecMutator::new(),
-        PubSecByteFlipMutator::new(),
-        PubSecByteIncMutator::new(),
-        PubSecByteNegMutator::new(),
-        PubSecByteRandMutator::new(),
-        PubSecBytesDeleteMutator::new(),
+    // let mutations = tuple_list!(
+    //     PubSecBitFlipMutator::new(),
+    //     PubSecByteDecMutator::new(),
+    //     PubSecByteFlipMutator::new(),
+    //     PubSecByteIncMutator::new(),
+    //     PubSecByteNegMutator::new(),
+    //     PubSecByteRandMutator::new(),
+    //     PubSecBytesDeleteMutator::new(),
 
-        PubSecByteAddMutator::new(),
-        PubSecWordAddMutator::new(),
-        PubSecDwordAddMutator::new(),
-        PubSecQwordAddMutator::new(),
+    //     PubSecByteAddMutator::new(),
+    //     PubSecWordAddMutator::new(),
+    //     PubSecDwordAddMutator::new(),
+    //     PubSecQwordAddMutator::new(),
 
-        PubSecByteInterestingMutator::new(),
-        PubSecWordInterestingMutator::new(),
-        PubSecDwordInterestingMutator::new(),
+    //     PubSecByteInterestingMutator::new(),
+    //     PubSecWordInterestingMutator::new(),
+    //     PubSecDwordInterestingMutator::new(),
 
-        PubSecBytesExpandMutator::new(),
-        PubSecBytesInsertMutator::new(),
-        PubSecBytesRandInsertMutator::new(),
-        PubSecBytesSetMutator::new(),
-        PubSecBytesRandSetMutator::new(),
-        PubSecBytesCopyMutator::new(),
+    //     PubSecBytesExpandMutator::new(),
+    //     PubSecBytesInsertMutator::new(),
+    //     PubSecBytesRandInsertMutator::new(),
+    //     PubSecBytesSetMutator::new(),
+    //     PubSecBytesRandSetMutator::new(),
+    //     PubSecBytesCopyMutator::new(),
 
-        PubSecCrossoverInsertMutator::new(),
-        PubSecCrossoverReplaceMutator::new(),
-    );
+    //     PubSecCrossoverInsertMutator::new(),
+    //     PubSecCrossoverReplaceMutator::new(),
+    //     PubSecSpliceMutator::new(),
+    // );
 
     // Setup a mutational stage with a basic bytes mutator
     let mutator =
-        StdScheduledMutator::with_max_stack_pow(mutations, 6);
+        StdScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
     // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
     let mut stages = tuple_list!(StdMutationalStage::new(mutator));
 

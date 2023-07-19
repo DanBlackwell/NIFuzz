@@ -57,6 +57,8 @@ pub trait PubSecInput { // : HasBytesVec {
 
     fn remove_bytes_in_range(&mut self, range: Range<usize>);
     fn insert_bytes_at_pos(&mut self, bytes: &[u8], start_pos: usize);
+
+    fn get_total_len(&self) -> usize;
 }
 
 impl PubSecInput for PubSecBytesInput {
@@ -222,6 +224,10 @@ impl PubSecInput for PubSecBytesInput {
 
         let len_array = (self.public_len as u32).to_ne_bytes().to_vec(); 
         self.raw_bytes[0..len_indicator].copy_from_slice(&len_array);
+    }
+
+    fn get_total_len(&self) -> usize {
+        self.raw_bytes.len() - std::mem::size_of::<u32>()
     }
 }
 

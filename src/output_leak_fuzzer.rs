@@ -144,7 +144,7 @@ where
                 if !matches {
                     hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
                     if hash_val.secret_inputs_full.len() % 2 == 0 {
-                        // println!("Found a leak!, stdout: {:?}", std::str::from_utf8(output_data.stdout));
+                        println!("Found a leak!, stdout: {:?}", std::str::from_utf8(output_data.stdout));
                         return Some(FailingHypertest {
                             test_one: I::from_pub_sec_bytes(
                                 input.get_public_part_bytes(), 
