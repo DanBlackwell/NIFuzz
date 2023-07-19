@@ -54,7 +54,11 @@ use pub_sec_mutations::{
     PubSecBitFlipMutator, PubSecByteFlipMutator, PubSecByteAddMutator, PubSecByteDecMutator, PubSecByteIncMutator,
     PubSecByteInterestingMutator, PubSecByteNegMutator, PubSecByteRandMutator, PubSecBytesDeleteMutator,
     PubSecWordAddMutator, PubSecDwordAddMutator, PubSecQwordAddMutator,
-    PubSecWordInterestingMutator, PubSecDwordInterestingMutator
+    PubSecWordInterestingMutator, PubSecDwordInterestingMutator,
+    PubSecBytesExpandMutator, PubSecBytesInsertMutator, PubSecBytesRandInsertMutator, PubSecBytesSetMutator,
+    PubSecBytesRandSetMutator, PubSecBytesCopyMutator, 
+    PubSecCrossoverInsertMutator, PubSecCrossoverReplaceMutator,
+
 };
 
 
@@ -255,19 +259,16 @@ pub fn main() {
         PubSecByteInterestingMutator::new(),
         PubSecWordInterestingMutator::new(),
         PubSecDwordInterestingMutator::new(),
-        // BitFlipMutator::new(),
-        // ByteFlipMutator::new(),
-        // ByteIncMutator::new(),
-        // ByteDecMutator::new(),
-        // ByteNegMutator::new(),
-        // ByteRandMutator::new(),
-        // ByteAddMutator::new(),
-        // WordAddMutator::new(),
-        // DwordAddMutator::new(),
-        // QwordAddMutator::new(),
-        // ByteInterestingMutator::new(),
-        // WordInterestingMutator::new(),
-        // DwordInterestingMutator::new(),
+
+        PubSecBytesExpandMutator::new(),
+        PubSecBytesInsertMutator::new(),
+        PubSecBytesRandInsertMutator::new(),
+        PubSecBytesSetMutator::new(),
+        PubSecBytesRandSetMutator::new(),
+        PubSecBytesCopyMutator::new(),
+
+        PubSecCrossoverInsertMutator::new(),
+        PubSecCrossoverReplaceMutator::new(),
     );
 
     // Setup a mutational stage with a basic bytes mutator
