@@ -56,7 +56,7 @@ pub type PubSecMutationsType = tuple_list_type!(
     PubSecBytesRandSetMutator,
     PubSecBytesCopyMutator,
     PubSecBytesInsertCopyMutator,
-    // PubSecBytesSwapMutator,
+    PubSecBytesSwapMutator,
     PubSecCrossoverInsertMutator,
     PubSecCrossoverReplaceMutator,
 );
@@ -89,7 +89,7 @@ pub fn pub_sec_mutations() -> PubSecMutationsType {
         PubSecBytesRandSetMutator::new(),
         PubSecBytesCopyMutator::new(),
         PubSecBytesInsertCopyMutator::new(),
-        // PubSecBytesSwapMutator::new(),
+        PubSecBytesSwapMutator::new(),
         PubSecCrossoverInsertMutator::new(),
         PubSecCrossoverReplaceMutator::new(),
     )
@@ -843,206 +843,61 @@ impl PubSecBytesInsertCopyMutator {
     }
 }
 
-// /// Bytes swap mutation for inputs with a bytes vector
-// #[derive(Debug, Default)]
-// pub struct BytesSwapMutator {
-//     tmp_buf: Vec<u8>,
-// }
+/// Bytes swap mutation for inputs with a bytes vector
+#[derive(Debug, Default)]
+pub struct PubSecBytesSwapMutator {}
 
-// #[allow(clippy::too_many_lines)]
-// impl<I, S> Mutator<I, S> for BytesSwapMutator
-// where
-//     S: HasRand,
-//     I: HasBytesVec,
-// {
-//     fn mutate(
-//         &mut self,
-//         state: &mut S,
-//         input: &mut I,
-//         _stage_idx: i32,
-//     ) -> Result<MutationResult, Error> {
-//         let size = input.get_mutable_current_buf_seg().len();
-//         if size <= 1 {
-//             return Ok(MutationResult::Skipped);
-//         }
+#[allow(clippy::too_many_lines)]
+impl<I, S> Mutator<I, S> for PubSecBytesSwapMutator
+where
+    S: HasRand,
+    I: PubSecInput,
+{
+    fn mutate(
+        &mut self,
+        state: &mut S,
+        input: &mut I,
+        _stage_idx: i32,
+    ) -> Result<MutationResult, Error> {
+        let size = input.get_current_buf_seg().len();
+        if size <= 1 {
+            return Ok(MutationResult::Skipped);
+        }
 
-//         let first = rand_range(state, size, size);
-//         if state.rand_mut().next() & 1 == 0 && first.start != 0 {
-//             // The second range comes before first.
-
-//             let second = rand_range(state, first.start, first.start);
-//             self.tmp_buf.resize(first.len(), 0);
-//             // If range first is larger
-//             if first.len() >= second.len() {
-//                 let diff_in_size = first.len() - second.len();
-
-//                 // copy first range to tmp
-//                 self.tmp_buf = input.get_mutable_current_buf_seg()[first].to_vec();
-
-//                 // adjust second.end..first.start, move them by diff_in_size to the right
-//                 buffer_self_copy(
-//                     input.bytes_mut(),
-//                     second.end,
-//                     second.end + diff_in_size,
-//                     first.start - second.end,
-//                 );
-
-//                 // copy second to where first was
-//                 buffer_self_copy(
-//                     input.bytes_mut(),
-//                     second.start,
-//                     first.start + diff_in_size,
-//                     second.len(),
-//                 );
-
-//                 // copy first back
-//                 buffer_copy(
-//                     input.bytes_mut(),
-//                     &self.tmp_buf,
-//                     0,
-//                     second.start,
-//                     first.len(),
-//                 );
-//             } else {
-//                 let diff_in_size = second.len() - first.len();
-
-//                 // copy first range to tmp
-//                 buffer_copy(
-//                     &mut self.tmp_buf,
-//                     input.bytes(),
-//                     first.start,
-//                     0,
-//                     first.len(),
-//                 );
-
-//                 // adjust second.end..first.start, move them by diff_in_size to the left
-//                 buffer_self_copy(
-//                     input.bytes_mut(),
-//                     second.end,
-//                     second.end - diff_in_size,
-//                     first.start - second.end,
-//                 );
-
-//                 // copy second to where first was
-//                 buffer_self_copy(
-//                     input.bytes_mut(),
-//                     second.start,
-//                     first.start - diff_in_size,
-//                     second.len(),
-//                 );
-
-//                 // copy first back
-//                 buffer_copy(
-//                     input.bytes_mut(),
-//                     &self.tmp_buf,
-//                     0,
-//                     second.start,
-//                     first.len(),
-//                 );
-//             }
+        let first = rand_range(state, size, size);
+        if state.rand_mut().next() & 1 == 0 && first.start != 0 {
+            // The second range comes before first.
+            let second = rand_range(state, first.start, first.start);
+            input.swap_bytes_in_ranges(first, second);
             
-//             Ok(MutationResult::Mutated)
-//         } else if first.end != size {
-//             // The first range comes before the second range
-//             let mut second = rand_range(state, size - first.end, size - first.end);
-//             second.start += first.end;
-//             second.end += first.end;
+            Ok(MutationResult::Mutated)
+        } else if first.end != size {
+            // The first range comes before the second range
+            let mut second = rand_range(state, size - first.end, size - first.end);
+            second.start += first.end;
+            second.end += first.end;
+            input.swap_bytes_in_ranges(first, second);
 
-//             self.tmp_buf.resize(second.len(), 0);
-//             unsafe {
-//                 if second.len() >= first.len() {
-//                     let diff_in_size = second.len() - first.len();
-//                     // copy second range to tmp
-//                     buffer_copy(
-//                         &mut self.tmp_buf,
-//                         input.bytes(),
-//                         second.start,
-//                         0,
-//                         second.len(),
-//                     );
+            Ok(MutationResult::Mutated)
+        } else {
+            Ok(MutationResult::Skipped)
+        }
+    }
+}
 
-//                     // adjust first.end..second.start, move them by diff_in_size to the right
-//                     buffer_self_copy(
-//                         input.bytes_mut(),
-//                         first.end,
-//                         first.end + diff_in_size,
-//                         second.start - first.end,
-//                     );
+impl Named for PubSecBytesSwapMutator {
+    fn name(&self) -> &str {
+        "PubSecBytesSwapMutator"
+    }
+}
 
-//                     // copy first to where second was
-//                     buffer_self_copy(
-//                         input.bytes_mut(),
-//                         first.start,
-//                         second.start + diff_in_size,
-//                         first.len(),
-//                     );
-
-//                     // copy second back
-//                     buffer_copy(
-//                         input.bytes_mut(),
-//                         &self.tmp_buf,
-//                         0,
-//                         first.start,
-//                         second.len(),
-//                     );
-//                 } else {
-//                     let diff_in_size = first.len() - second.len();
-//                     // copy second range to tmp
-//                     buffer_copy(
-//                         &mut self.tmp_buf,
-//                         input.bytes(),
-//                         second.start,
-//                         0,
-//                         second.len(),
-//                     );
-
-//                     // adjust first.end..second.start, move them by diff_in_size to the left
-//                     buffer_self_copy(
-//                         input.bytes_mut(),
-//                         first.end,
-//                         first.end - diff_in_size,
-//                         second.start - first.end,
-//                     );
-
-//                     // copy first to where second was
-//                     buffer_self_copy(
-//                         input.bytes_mut(),
-//                         first.start,
-//                         second.start - diff_in_size,
-//                         first.len(),
-//                     );
-
-//                     // copy second back
-//                     buffer_copy(
-//                         input.bytes_mut(),
-//                         &self.tmp_buf,
-//                         0,
-//                         first.start,
-//                         second.len(),
-//                     );
-//                 }
-//             }
-
-//             Ok(MutationResult::Mutated)
-//         } else {
-//             Ok(MutationResult::Skipped)
-//         }
-//     }
-// }
-
-// impl Named for BytesSwapMutator {
-//     fn name(&self) -> &str {
-//         "BytesSwapMutator"
-//     }
-// }
-
-// impl BytesSwapMutator {
-//     /// Creates a new [`BytesSwapMutator`].
-//     #[must_use]
-//     pub fn new() -> Self {
-//         Self::default()
-//     }
-// }
+impl PubSecBytesSwapMutator {
+    /// Creates a new [`PubSecBytesSwapMutator`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// Crossover insert mutation for inputs with a bytes vector
 #[derive(Debug, Default)]

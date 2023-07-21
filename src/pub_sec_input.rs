@@ -57,6 +57,7 @@ pub trait PubSecInput { // : HasBytesVec {
 
     fn remove_bytes_in_range(&mut self, range: Range<usize>);
     fn insert_bytes_at_pos(&mut self, bytes: &[u8], start_pos: usize);
+    fn swap_bytes_in_ranges(&mut self, range_1: Range<usize>, range_2: Range<usize>);
 
     fn get_total_len(&self) -> usize;
 }
@@ -161,7 +162,7 @@ impl PubSecInput for PubSecBytesInput {
             CurrentMutateTarget::Public => {
                 let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
                 self.raw_bytes.drain(adjusted);
-                self.public_len -= range.end - range.start;
+                self.set_public_len(self.public_len - range.end + range.start);
             },
             CurrentMutateTarget::Secret => {
                 let offset = len_indicator + self.public_len;
@@ -173,9 +174,9 @@ impl PubSecInput for PubSecBytesInput {
                     if range.end > self.public_len {
                         // println!("removing range {:?}, lens before: public {}, total {}; after: public {}",
                         //     range, self.public_len, self.raw_bytes.len() - 4, range.start);
-                        self.public_len = range.start;
+                        self.set_public_len(range.start);
                     } else {
-                        self.public_len -= range.end - range.start;
+                        self.set_public_len(self.public_len - range.end + range.start);
                     }
                 }
 
@@ -183,9 +184,6 @@ impl PubSecInput for PubSecBytesInput {
                 self.raw_bytes.drain(adjusted);
             }
         }    
-
-        let len_array = (self.public_len as u32).to_ne_bytes().to_vec(); 
-        self.raw_bytes[0..len_indicator].copy_from_slice(&len_array);
     }
 
     fn insert_bytes_at_pos(&mut self, bytes: &[u8], start_pos: usize) {
@@ -198,7 +196,7 @@ impl PubSecInput for PubSecBytesInput {
 
         match self.current_mutate_target {
             CurrentMutateTarget::Public => {
-                self.public_len += bytes.len();
+                self.set_public_len(self.public_len + bytes.len());
 
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
 
@@ -213,7 +211,7 @@ impl PubSecInput for PubSecBytesInput {
             },
             CurrentMutateTarget::All => {
                 if adjusted_start < len_indicator + self.public_len {
-                    self.public_len += bytes.len();
+                    self.set_public_len(self.public_len + bytes.len());
                 }
 
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
@@ -221,9 +219,62 @@ impl PubSecInput for PubSecBytesInput {
                 self.raw_bytes[adjusted_start..adjusted_end].copy_from_slice(bytes);
             }
         }    
+    }
 
-        let len_array = (self.public_len as u32).to_ne_bytes().to_vec(); 
-        self.raw_bytes[0..len_indicator].copy_from_slice(&len_array);
+    fn swap_bytes_in_ranges(&mut self, range_1: Range<usize>, range_2: Range<usize>) {
+
+        if (range_2.start >= range_1.start && range_2.start < range_1.end) ||
+            (range_2.end > range_1.start && range_2.end < range_1.end) ||
+            (range_1.start >= range_2.start && range_1.start < range_2.end) ||
+            (range_1.end > range_2.start && range_1.end < range_2.end) {
+                panic!("overlapping ranges {:?}, {:?}", range_1, range_2);
+            }
+
+        let (mut first, mut second) = if range_1.start < range_2.start {
+            (range_1, range_2)
+        } else {
+            (range_2, range_1)
+        };
+
+        let offset = std::mem::size_of::<u32>() + match self.current_mutate_target {
+            CurrentMutateTarget::Secret => self.public_len,
+            _ => 0
+        };
+
+        first = (first.start + offset)..(first.end + offset);
+        second = (second.start + offset)..(second.end + offset);
+
+        // println!("Swapping ranges {:?} and {:?} ({:?} and {:?} in \n{:?}", first, second, &self.raw_bytes[first.clone()], &self.raw_bytes[second.clone()], self.raw_bytes);
+
+        let mut temp = Vec::new();
+        temp.resize(self.raw_bytes.len(), 0);
+        temp[0..first.start].copy_from_slice(&self.raw_bytes[0..first.start]);
+
+        let mut start_pos = first.start;
+        let mut end_pos = first.start + second.len();
+        temp[start_pos..end_pos].copy_from_slice(&self.raw_bytes[second.clone()]);
+
+        start_pos = end_pos;
+        end_pos = start_pos + second.start - first.end;
+        temp[start_pos..end_pos].copy_from_slice(&self.raw_bytes[first.end..second.start]);
+
+        start_pos = end_pos;
+        end_pos = start_pos + first.len();
+        temp[start_pos..end_pos].copy_from_slice(&self.raw_bytes[first.clone()]);
+
+        start_pos = end_pos;
+        temp[start_pos..self.raw_bytes.len()].copy_from_slice(&self.raw_bytes[second.end..]);
+
+        match self.current_mutate_target {
+            CurrentMutateTarget::All => if first.end <= self.public_len + offset && second.start >= self.public_len + offset {
+                self.set_public_len(self.public_len + second.len() - first.len());
+            },
+            _ => ()
+        };
+
+        // println!("After swap:\n{:?}\npub: {}, sec: {}", temp, self.public_len, self.secret_len);
+
+        self.raw_bytes = temp;
     }
 
     fn get_total_len(&self) -> usize {
@@ -362,5 +413,14 @@ impl PubSecBytesInput {
         comb.append(&mut public_bytes.to_owned());
         comb.append(&mut secret_bytes.to_owned());
         comb
+    }
+
+    fn set_public_len(&mut self, new_len: usize) {
+        let offset = std::mem::size_of::<u32>();
+
+        self.public_len = new_len;
+        let len_array = (self.public_len as u32).to_ne_bytes().to_vec(); 
+        self.raw_bytes[0..offset].copy_from_slice(&len_array);
+        self.secret_len = self.raw_bytes.len() - self.public_len - offset;
     }
 }
