@@ -61,6 +61,29 @@ pub struct IOHashValue {
     pub public_outputs_full: Vec<Vec<u8>>
 }
 
+impl IOHashValue {
+    fn info_string(&self) -> String {
+        format!("[pub_in: {:20}, (sec_in, pub_out)s: {:?}]", 
+            self.public_input_hash, 
+            self.secret_input_hashes.iter().zip(self.public_output_hashes.iter())
+            .collect::<Vec<(&u64, &u64)>>()
+        )
+    }
+
+    fn extended_info_string(&self) -> String {
+        if self.public_input_full.is_none() { return self.info_string(); }
+
+        format!("[pub_in: {:20}, (sec_in, pub_out)s: {:?}]", 
+            std::string::String::from_utf8_lossy(&self.public_input_full.as_ref().unwrap()).into_owned(), 
+            self.secret_inputs_full
+                .iter()
+                .zip(self.public_outputs_full.iter())
+                .map(|(si, po)| (std::string::String::from_utf8_lossy(si).into_owned(), std::string::String::from_utf8_lossy(po).into_owned()))
+                .collect::<Vec<(String, String)>>()
+        )
+    }
+}
+
 pub struct InfoLeakChecker<I> {
     dict: HashMap<u64, IOHashValue>,    
     phantom: PhantomData<I>
@@ -76,7 +99,7 @@ pub struct FailingHypertest<I> {
 
 pub trait HypertestFeedback<I, S, OT> 
 where 
-    I: Input, //  + HasBytesVec,
+    I: Input, 
     S: HasCorpus,
     OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
@@ -142,9 +165,17 @@ where
                 }
 
                 if !matches {
+                    if hash_val.public_input_full.is_none() {
+                        hash_val.public_input_full = Some(input.get_public_part_bytes().to_vec());
+                    }
+
                     hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                    if hash_val.secret_inputs_full.len() % 2 == 0 {
+                    hash_val.public_outputs_full.push(output_data.stdout.to_vec());
+                    hash_val.public_output_hashes.push(pub_out_hash);
+
+                    if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
                         println!("Found a leak!, stdout: {:?}", std::str::from_utf8(output_data.stdout));
+                        println!("leak detected: {}", hash_val.extended_info_string());
                         return Some(FailingHypertest {
                             test_one: I::from_pub_sec_bytes(
                                 input.get_public_part_bytes(), 
@@ -157,6 +188,26 @@ where
                         });
                     }
                 }
+
+            // We didn't store the original output the first time so let's do that now!
+            } else if hash_val.public_output_hashes.len() > 1 &&
+                hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
+                hash_val.public_output_hashes[0] == pub_out_hash 
+            {
+
+                hash_val.public_outputs_full.insert(0, output_data.stdout.to_vec());
+                hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
+                println!("Found a leak! stdout: {:?}", std::string::String::from_utf8_lossy(output_data.stdout));
+                return Some(FailingHypertest {
+                    test_one: I::from_pub_sec_bytes(
+                        input.get_public_part_bytes(), 
+                        &hash_val.secret_inputs_full[1]       
+                    ),
+                    test_two: I::from_pub_sec_bytes(
+                        input.get_public_part_bytes(),
+                        input.get_secret_part_bytes()
+                    )
+                });
             }
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {

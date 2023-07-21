@@ -59,6 +59,7 @@ pub type PubSecMutationsType = tuple_list_type!(
     PubSecBytesSwapMutator,
     PubSecCrossoverInsertMutator,
     PubSecCrossoverReplaceMutator,
+    PubSecSpliceMutator,
 );
 
 /// Get the mutations that compose the Havoc mutator
@@ -92,6 +93,7 @@ pub fn pub_sec_mutations() -> PubSecMutationsType {
         PubSecBytesSwapMutator::new(),
         PubSecCrossoverInsertMutator::new(),
         PubSecCrossoverReplaceMutator::new(),
+        PubSecSpliceMutator::new(),
     )
 }
 
