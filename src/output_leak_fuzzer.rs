@@ -46,9 +46,17 @@ pub enum LeakExecuteInputResult {
     Solution,
 }
 
-pub struct OutputData<'a> {
-    pub stdout: &'a [u8],
-    pub stderr: &'a [u8]
+pub struct OutputData {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>
+}
+
+impl OutputData {
+    fn to_string(&self)  -> String{
+        format!("stdout: {:?}, stderr: {:?}", 
+            std::string::String::from_utf8_lossy(&self.stdout),
+            std::string::String::from_utf8_lossy(&self.stderr))
+    }
 }
 
 pub struct IOHashValue {
@@ -58,7 +66,7 @@ pub struct IOHashValue {
     pub public_output_hashes: Vec<u64>,
 
     pub secret_inputs_full: Vec<Vec<u8>>,
-    pub public_outputs_full: Vec<Vec<u8>>
+    pub public_outputs_full: Vec<OutputData>
 }
 
 impl IOHashValue {
@@ -78,7 +86,7 @@ impl IOHashValue {
             self.secret_inputs_full
                 .iter()
                 .zip(self.public_outputs_full.iter())
-                .map(|(si, po)| (std::string::String::from_utf8_lossy(si).into_owned(), std::string::String::from_utf8_lossy(po).into_owned()))
+                .map(|(si, po)| (std::string::String::from_utf8_lossy(si).into_owned(), std::string::String::from_utf8_lossy(&po.stdout).into_owned()))
                 .collect::<Vec<(String, String)>>()
         )
     }
@@ -86,15 +94,24 @@ impl IOHashValue {
 
 pub struct InfoLeakChecker<I> {
     dict: HashMap<u64, IOHashValue>,    
+    prev_sec_in: Vec<u8>,
+    prev_pub_in: Vec<u8>,
+    prev_output: OutputData,
     phantom: PhantomData<I>
 }
 
 impl<I> InfoLeakChecker<I> {
 }
 
-pub struct FailingHypertest<I> {
-    test_one: I,
-    test_two: I
+// pub struct FailingHypertest<I> {
+//     test_one: I,
+//     test_two: I
+// }
+
+pub enum HypertestResult<I> {
+    Failing(I, I),
+    NeedsRerun,
+    Boring,
 }
 
 pub trait HypertestFeedback<I, S, OT> 
@@ -104,7 +121,7 @@ where
     OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
     fn new() -> Self;
-    fn exposes_fault(&mut self, input: &I, observers: &OT) -> Option<FailingHypertest<I>>;
+    fn exposes_fault(&mut self, input: &I, observers: &OT) -> HypertestResult<I>;
 }
 
 impl<I, S, OT> HypertestFeedback<I, S, OT> for InfoLeakChecker<I>
@@ -116,11 +133,14 @@ where
     fn new() -> Self {
         Self {
             dict: HashMap::new(),
+            prev_pub_in: Vec::new(),
+            prev_sec_in: Vec::new(),
+            prev_output: OutputData { stdout: Vec::new(), stderr: Vec::new() },
             phantom: PhantomData
         }
     }
 
-    fn exposes_fault(&mut self, input: &I, observers: &OT) -> Option<FailingHypertest<I>> {
+    fn exposes_fault(&mut self, input: &I, observers: &OT) -> HypertestResult<I> {
         let observer = observers.match_name::<OutputObserver>("output").unwrap();
 
         let empty = Vec::new();
@@ -128,12 +148,11 @@ where
             None => &empty,
             Some(o) => o
         };
-        let stderr = match observer.stdout() {
+        let stderr = match observer.stderr() {
             None => &empty,
             Some(o) => o
         };
 
-        let output_data = OutputData { stdout, stderr };
 
         // println!("input: {:?}", input.bytes());
         let hash = |val: &[u8]| {
@@ -146,13 +165,55 @@ where
         let sec_in_hash = hash(input.get_secret_part_bytes());
 
         let mut hasher = DefaultHasher::new();
-        output_data.stdout.hash(&mut hasher);
-        output_data.stderr.hash(&mut hasher);
+        stdout.hash(&mut hasher);
+        stderr.hash(&mut hasher);
         let pub_out_hash = hasher.finish();
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
+                    println!("Made the following observations (secret_in: public_out) for public_in: {:?}:", 
+                        std::string::String::from_utf8_lossy(input.get_public_part_bytes()));
+                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+
+                    if hash_val.public_outputs_full.len() == 0 {
+                        println!("For public in: {:?} and secret_in: {:?} found two different outputs: (hash only) {:?} and {:?}",
+                            std::string::String::from_utf8_lossy(input.get_public_part_bytes()),
+                            std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
+                            hash_val.public_output_hashes[0],
+                            output_data.to_string());
+
+                    } else if hash_val.secret_inputs_full.len() < hash_val.public_outputs_full.len() {
+                        println!("(hash only) {}: {:?}",
+                            hash_val.secret_input_hashes[0],
+                            std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
+                        for i in 0..hash_val.secret_inputs_full.len() {
+                            println!("{:?}: {:?}",
+                                std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[i]),
+                                std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[i + 1].stdout));
+                        }
+
+                    } else {
+                        for i in 0..hash_val.secret_inputs_full.len() {
+                            println!("{:?}: {:?}",
+                                std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[i]),
+                                std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[i].stdout));
+                        }
+
+                    }
+
+                    println!("Note: prev pub_in: {:?},\nsec_in: {:?},\npub_stdout: {:?},\npub_stderr: {:?}",
+                        std::string::String::from_utf8_lossy(&self.prev_pub_in),
+                        std::string::String::from_utf8_lossy(&self.prev_sec_in),
+                        std::string::String::from_utf8_lossy(&self.prev_output.stdout),
+                        std::string::String::from_utf8_lossy(&self.prev_output.stderr),
+                    );
+
+                    self.prev_pub_in = input.get_public_part_bytes().to_owned();
+                    self.prev_sec_in = input.get_secret_part_bytes().to_owned();
+                    self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+
+                    // return HypertestResult::NeedsRerun;
                     panic!("Likely non-determinism");
                 }
 
@@ -170,22 +231,28 @@ where
                     }
 
                     hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                    hash_val.public_outputs_full.push(output_data.stdout.to_vec());
+                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+                    hash_val.public_outputs_full.push(output_data);
                     hash_val.public_output_hashes.push(pub_out_hash);
 
                     if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
-                        println!("Found a leak!, stdout: {:?}", std::str::from_utf8(output_data.stdout));
+                        println!("Found a leak!, stdout: {:?}", std::string::String::from_utf8_lossy(stdout));
                         println!("leak detected: {}", hash_val.extended_info_string());
-                        return Some(FailingHypertest {
-                            test_one: I::from_pub_sec_bytes(
+
+                        self.prev_pub_in = input.get_public_part_bytes().to_owned();
+                        self.prev_sec_in = input.get_secret_part_bytes().to_owned();
+                        self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+                        
+                        return HypertestResult::Failing(
+                            I::from_pub_sec_bytes(
                                 input.get_public_part_bytes(), 
                                 &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
                             ),
-                            test_two: I::from_pub_sec_bytes(
+                            I::from_pub_sec_bytes(
                                 input.get_public_part_bytes(),
                                 input.get_secret_part_bytes()
                             )
-                        });
+                        );
                     }
                 }
 
@@ -195,19 +262,29 @@ where
                 hash_val.public_output_hashes[0] == pub_out_hash 
             {
 
-                hash_val.public_outputs_full.insert(0, output_data.stdout.to_vec());
+                let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+                hash_val.public_outputs_full.insert(0, output_data);
                 hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
-                println!("Found a leak! stdout: {:?}", std::string::String::from_utf8_lossy(output_data.stdout));
-                return Some(FailingHypertest {
-                    test_one: I::from_pub_sec_bytes(
+                println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
+                    std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
+                    std::string::String::from_utf8_lossy(stdout),
+                    std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[1]),
+                    std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[1].stdout));
+
+                self.prev_pub_in = input.get_public_part_bytes().to_owned();
+                self.prev_sec_in = input.get_secret_part_bytes().to_owned();
+                self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+
+                return HypertestResult::Failing(
+                    I::from_pub_sec_bytes(
                         input.get_public_part_bytes(), 
                         &hash_val.secret_inputs_full[1]       
                     ),
-                    test_two: I::from_pub_sec_bytes(
+                    I::from_pub_sec_bytes(
                         input.get_public_part_bytes(),
                         input.get_secret_part_bytes()
                     )
-                });
+                );
             }
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {
@@ -220,7 +297,14 @@ where
             });
         }
 
-        None
+        self.prev_pub_in = input.get_public_part_bytes().to_owned();
+        self.prev_sec_in = input.get_secret_part_bytes().to_owned();
+        self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+        // if self.prev_output.stdout.len() > 0 || self.prev_output.stderr.len() > 0 {
+        //     println!("output: {}", self.prev_output.to_string());
+        // }
+
+        HypertestResult::Boring
     }
 }
 
@@ -281,7 +365,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -302,7 +385,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -324,8 +406,7 @@ where
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Evaluate if a set of observation channels has an interesting state
@@ -371,21 +452,17 @@ where
             }
         }
 
-        // if let Some(observer) = observers.match_name::<OutputObserver>("output") {
-        //     let empty = Vec::new();
-        //     let stdout = match observer.stdout() {
-        //         None => &empty,
-        //         Some(o) => o
-        //     };
-        //     let stderr = match observer.stdout() {
-        //         None => &empty,
-        //         Some(o) => o
-        //     };
+        let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, observers);
+        match failing_hypertest {
+            HypertestResult::Boring => (),
+            HypertestResult::NeedsRerun => {
+                // let exit_kind = self.execute_input(state, executor, manager, &input)?;
+                // let observers = executor.observers();
+            },
+            HypertestResult::Failing(in1, in2) => {
 
-        //     let output_data = OutputData { stdout, stderr };
-
-            let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, observers);
-        // }
+            },
+        };
 
         match res {
             ExecuteInputResult::None => {
@@ -460,8 +537,7 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
@@ -496,8 +572,7 @@ where
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
-    <<CS as UsesState>::State as UsesInput>::Input: Input, //  + HasBytesVec,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
+    <<CS as UsesState>::State as UsesInput>::Input: Input,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
@@ -593,7 +668,6 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase,
     ST: StagesTuple<E, EM, CS::State, Self>,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -651,7 +725,6 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
 {
@@ -707,8 +780,6 @@ where
     E: Executor<EM, Self> + HasObservers<State = CS::State>,
     EM: UsesState<State = CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
-    // <CS::State as UsesInput>::Input: HasBytesVec,
-    // OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     E::Observers: Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, E::Observers>,
 {
