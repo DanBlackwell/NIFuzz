@@ -103,15 +103,9 @@ pub struct InfoLeakChecker<I> {
 impl<I> InfoLeakChecker<I> {
 }
 
-// pub struct FailingHypertest<I> {
-//     test_one: I,
-//     test_two: I
-// }
-
-pub enum HypertestResult<I> {
-    Failing(I, I),
-    NeedsRerun,
-    Boring,
+pub struct FailingHypertest<'a, I> {
+    test_one: (I, &'a OutputData),
+    test_two: (I, &'a OutputData),
 }
 
 pub trait HypertestFeedback<I, S, OT> 
@@ -121,7 +115,8 @@ where
     OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
     fn new() -> Self;
-    fn exposes_fault(&mut self, input: &I, observers: &OT) -> HypertestResult<I>;
+    fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>);
+    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<FailingHypertest<'_, I>>;
 }
 
 impl<I, S, OT> HypertestFeedback<I, S, OT> for InfoLeakChecker<I>
@@ -140,7 +135,7 @@ where
         }
     }
 
-    fn exposes_fault(&mut self, input: &I, observers: &OT) -> HypertestResult<I> {
+    fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>) {
         let observer = observers.match_name::<OutputObserver>("output").unwrap();
 
         let empty = Vec::new();
@@ -153,8 +148,6 @@ where
             Some(o) => o
         };
 
-
-        // println!("input: {:?}", input.bytes());
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
             val.hash(&mut hasher);
@@ -169,8 +162,10 @@ where
         stderr.hash(&mut hasher);
         let pub_out_hash = hasher.finish();
 
-        if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+        if let Some(hash_val) = self.dict.get(&pub_in_hash) {
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
                     println!("Made the following observations (secret_in: public_out) for public_in: {:?}:", 
                         std::string::String::from_utf8_lossy(input.get_public_part_bytes()));
@@ -209,82 +204,30 @@ where
                         std::string::String::from_utf8_lossy(&self.prev_output.stderr),
                     );
 
-                    self.prev_pub_in = input.get_public_part_bytes().to_owned();
-                    self.prev_sec_in = input.get_secret_part_bytes().to_owned();
-                    self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-
-                    // return HypertestResult::NeedsRerun;
-                    panic!("Likely non-determinism");
+                    return (true, Some(output_data));
                 }
 
-                let mut matches = false;
+                // let mut matches = false;
                 for secret_in in &hash_val.secret_inputs_full {
                     if input.get_secret_part_bytes() == secret_in {
-                        matches = true;
-                        break;
+                        // matches = true;
+                        panic!("Hash not found in hashes, but full input was?");
                     }
                 }
 
-                if !matches {
-                    if hash_val.public_input_full.is_none() {
-                        hash_val.public_input_full = Some(input.get_public_part_bytes().to_vec());
-                    }
-
-                    hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-                    hash_val.public_outputs_full.push(output_data);
-                    hash_val.public_output_hashes.push(pub_out_hash);
-
-                    if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
-                        println!("Found a leak!, stdout: {:?}", std::string::String::from_utf8_lossy(stdout));
-                        println!("leak detected: {}", hash_val.extended_info_string());
-
-                        self.prev_pub_in = input.get_public_part_bytes().to_owned();
-                        self.prev_sec_in = input.get_secret_part_bytes().to_owned();
-                        self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-                        
-                        return HypertestResult::Failing(
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(), 
-                                &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
-                            ),
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(),
-                                input.get_secret_part_bytes()
-                            )
-                        );
-                    }
-                }
+                // if !matches {
+                    println!("Likely leak, needs rerun to confirm deterministic");
+                    return (true, Some(output_data));
+                // }
 
             // We didn't store the original output the first time so let's do that now!
             } else if hash_val.public_output_hashes.len() > 1 &&
                 hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
                 hash_val.public_output_hashes[0] == pub_out_hash 
             {
-
+                println!("Found an input for which full secret input was not stored, flagged for rerun");
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-                hash_val.public_outputs_full.insert(0, output_data);
-                hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
-                println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
-                    std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
-                    std::string::String::from_utf8_lossy(stdout),
-                    std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[1]),
-                    std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[1].stdout));
-
-                self.prev_pub_in = input.get_public_part_bytes().to_owned();
-                self.prev_sec_in = input.get_secret_part_bytes().to_owned();
-                self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-
-                return HypertestResult::Failing(
-                    I::from_pub_sec_bytes(
-                        input.get_public_part_bytes(), 
-                        &hash_val.secret_inputs_full[1]       
-                    ),
-                    I::from_pub_sec_bytes(
-                        input.get_public_part_bytes(),
-                        input.get_secret_part_bytes()
-                    )
-                );
+                return (true, Some(output_data));
             }
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {
@@ -297,14 +240,115 @@ where
             });
         }
 
-        self.prev_pub_in = input.get_public_part_bytes().to_owned();
-        self.prev_sec_in = input.get_secret_part_bytes().to_owned();
-        self.prev_output = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-        // if self.prev_output.stdout.len() > 0 || self.prev_output.stderr.len() > 0 {
-        //     println!("output: {}", self.prev_output.to_string());
-        // }
+        (false, None)
+    }
 
-        HypertestResult::Boring
+    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<FailingHypertest<'_, I>> {
+        let hash = |val: &[u8]| {
+            let mut hasher = DefaultHasher::new();
+            val.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let pub_in_hash = hash(input.get_public_part_bytes());
+        let sec_in_hash = hash(input.get_secret_part_bytes());
+
+        let mut hasher = DefaultHasher::new();
+        output_data.stdout.hash(&mut hasher);
+        output_data.stderr.hash(&mut hasher);
+        let pub_out_hash = hasher.finish();
+
+        if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+            if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                if hash_val.secret_input_hashes.contains(&sec_in_hash) {
+                    let pos = hash_val.secret_input_hashes
+                        .iter()
+                        .position(|&h| h == sec_in_hash)
+                        .unwrap();
+                    hash_val.public_output_hashes[pos] = pub_out_hash;
+
+                    let full_pos = if hash_val.public_output_hashes.len() > hash_val.public_outputs_full.len() {
+                        pos + 1
+                    } else {
+                        pos
+                    };
+                    hash_val.public_outputs_full[full_pos] = output_data;
+
+                    println!("Replaced incorrect output_hash with correct one");
+                    return None;
+                }
+
+                if hash_val.public_input_full.is_none() {
+                    hash_val.public_input_full = Some(input.get_public_part_bytes().to_vec());
+                }
+
+                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                hash_val.public_outputs_full.push(output_data);
+                hash_val.public_output_hashes.push(pub_out_hash);
+
+                if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
+                    println!("Found a leak!, stdout: {:?}", 
+                        std::string::String::from_utf8_lossy(&hash_val.public_outputs_full.last().unwrap().stdout));
+                    println!("leak detected: {}", hash_val.extended_info_string());
+                    
+                    return Some(FailingHypertest {
+                        test_one: (
+                            I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(), 
+                                &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
+                            ),
+                            &hash_val.public_outputs_full[hash_val.public_outputs_full.len() - 2]
+                        ),
+                        test_two: (
+                            I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(),
+                                input.get_secret_part_bytes()
+                            ),
+                            &hash_val.public_outputs_full.last().unwrap()
+                        ),
+                    });
+                }
+
+                println!("Found a likely leak, but don't have the original secret input stored to verify yet");
+                return None;
+
+            // We didn't store the original output the first time so let's do that now!
+            } else if hash_val.public_output_hashes.len() > 1 &&
+                hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
+                hash_val.public_output_hashes[0] == pub_out_hash 
+            {
+
+                println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
+                    std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
+                    std::string::String::from_utf8_lossy(&output_data.stdout),
+                    std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[0]),
+                    std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
+
+                hash_val.public_outputs_full.insert(0, output_data);
+                hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
+
+                return Some(FailingHypertest {
+                    test_one: (
+                        I::from_pub_sec_bytes(
+                            input.get_public_part_bytes(), 
+                            &hash_val.secret_inputs_full[1]       
+                        ),
+                        &hash_val.public_outputs_full[1]
+                    ),
+                    test_two: (
+                        I::from_pub_sec_bytes(
+                            input.get_public_part_bytes(),
+                            input.get_secret_part_bytes()
+                        ),
+                        &hash_val.public_outputs_full[0]
+                    ),
+                });
+            }
+        } else {
+            panic!("This should have already been added in needs_rerun!");
+        }
+
+        panic!("oops");
     }
 }
 
@@ -452,18 +496,6 @@ where
             }
         }
 
-        let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, observers);
-        match failing_hypertest {
-            HypertestResult::Boring => (),
-            HypertestResult::NeedsRerun => {
-                // let exit_kind = self.execute_input(state, executor, manager, &input)?;
-                // let observers = executor.observers();
-            },
-            HypertestResult::Failing(in1, in2) => {
-
-            },
-        };
-
         match res {
             ExecuteInputResult::None => {
                 self.feedback_mut().discard_metadata(state, &input)?;
@@ -559,6 +591,11 @@ where
 
         self.scheduler.on_evaluation(state, &input, observers)?;
 
+        let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, observers);
+        if needs_rerun {
+            let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data.unwrap());
+        }
+        
         self.process_execution(state, manager, input, observers, &exit_kind, send_events)
     }
 }
