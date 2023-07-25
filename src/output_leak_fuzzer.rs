@@ -59,13 +59,27 @@ impl OutputData {
     }
 }
 
+/// struct storing associated data for a given public input 
+/// (including public outputs and secret inputs that witness a 
+/// leak)
 pub struct IOHashValue {
+    /// The hash of the public input this struct is describing
     pub public_input_hash: u64,
+    /// Optional full public input vector; only populated if this 
+    /// witnesses a policy violation
     pub public_input_full: Option<Vec<u8>>,
+    /// Vector of secret input hashes (only one is stored for each 
+    /// different public output)
     pub secret_input_hashes: Vec<u64>,
+    /// Vector of public output hashes (note that if more than two
+    /// are present then a leak has been witnessed)
     pub public_output_hashes: Vec<u64>,
+    public_output_hashes_to_secret_ins: HashMap<u64, u64>,
 
+    /// Vector of full byte arrays for secret inputs that can 
+    /// witness a leak
     pub secret_inputs_full: Vec<Vec<u8>>,
+    /// Vector of full public outputs that witness a leak
     pub public_outputs_full: Vec<OutputData>
 }
 
@@ -92,11 +106,18 @@ impl IOHashValue {
     }
 }
 
+/// State for the current fuzzing campaign with associated functions
 pub struct InfoLeakChecker<I> {
+    /// dictionary mapping public_in hashes to IOHashValues (including secret_in and public_out)
     dict: HashMap<u64, IOHashValue>,    
+    /// previous secret_in vec, for debug
     prev_sec_in: Vec<u8>,
+    /// previous public_in vec, for debug
     prev_pub_in: Vec<u8>,
+    /// previous public_out value, for debug
     prev_output: OutputData,
+    /// Vector of all public_in hashes that contain a violation (i.e. differing public_out's dependent on secret_in value)
+    violation_pub_ins: Vec<u64>,
     phantom: PhantomData<I>
 }
 
@@ -114,9 +135,17 @@ where
     S: HasCorpus,
     OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
+    /// Create a new empty HypertestFeedback object
     fn new() -> Self;
+    /// Read the observers relevant observers and determine whether this input may be interesting
+    /// (in which case it should be rerun to confirm that it is deterministic) 
     fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>);
+    /// Called when an interesting input is confirmed to be deterministic; in some cases this may
+    /// return a FailingHypertest, or None if this just fixes an entry that was previously stored 
+    /// incorrectly (likely due to some oddity in the way the forkserver collects output) 
     fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<FailingHypertest<'_, I>>;
+    /// Estimate the quantity of leakage (in bits) that has been witnessed so far
+    fn estimate_leakage(&self) -> f64;
 }
 
 impl<I, S, OT> HypertestFeedback<I, S, OT> for InfoLeakChecker<I>
@@ -131,6 +160,7 @@ where
             prev_pub_in: Vec::new(),
             prev_sec_in: Vec::new(),
             prev_output: OutputData { stdout: Vec::new(), stderr: Vec::new() },
+            violation_pub_ins: vec![],
             phantom: PhantomData
         }
     }
@@ -232,6 +262,7 @@ where
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {
                 public_input_full: None,
+                public_output_hashes_to_secret_ins: HashMap::new(),
                 public_input_hash: pub_in_hash,
                 public_output_hashes: vec![pub_out_hash],
                 public_outputs_full: Vec::new(),
@@ -268,11 +299,14 @@ where
                     hash_val.public_output_hashes[pos] = pub_out_hash;
 
                     let full_pos = if hash_val.public_output_hashes.len() > hash_val.public_outputs_full.len() {
-                        pos + 1
+                        pos - 1
                     } else {
                         pos
                     };
-                    hash_val.public_outputs_full[full_pos] = output_data;
+
+                    if hash_val.public_outputs_full.len() > 0 {
+                        hash_val.public_outputs_full[full_pos] = output_data;
+                    }
 
                     println!("Replaced incorrect output_hash with correct one");
                     return None;
@@ -349,6 +383,27 @@ where
         }
 
         panic!("oops");
+    }
+
+    fn estimate_leakage(&self) -> f64 {
+        let mut output_violation_entropy_sum = 0.0_f64;
+        let mut violation_entropy_sum = 0.0_f64;
+        let prob = 1.0_f64 / self.dict.len() as f64;
+
+        for violation_pub_in_hash in &self.violation_pub_ins {
+            let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
+            let ins_count = hash_val.public_outputs_full.len() as f64;
+            for _pub_out in &hash_val.public_outputs_full {
+                output_violation_entropy_sum += (prob / ins_count) * (prob / ins_count).log2();
+            }
+
+            violation_entropy_sum += prob * prob.log2();
+        }
+
+        let leaked_info_bits = - output_violation_entropy_sum + violation_entropy_sum;
+        println!("Leaked {} bits", leaked_info_bits);
+
+        leaked_info_bits
     }
 }
 
@@ -594,6 +649,10 @@ where
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, observers);
         if needs_rerun {
             let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data.unwrap());
+            match failing_hypertest {
+                Some(failing_hypertest) => { self.hypertest_feedback.estimate_leakage(); },
+                _ => ()
+            };
         }
         
         self.process_execution(state, manager, input, observers, &exit_kind, send_events)
