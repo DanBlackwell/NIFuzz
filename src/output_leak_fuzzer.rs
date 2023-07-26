@@ -63,6 +63,8 @@ impl OutputData {
 /// (including public outputs and secret inputs that witness a 
 /// leak)
 pub struct IOHashValue {
+    /// Number of samples for this public_input_hash
+    hits: usize,
     /// The hash of the public input this struct is describing
     pub public_input_hash: u64,
     /// Optional full public input vector; only populated if this 
@@ -195,6 +197,7 @@ where
         let pub_out_hash = hasher.finish();
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+            hash_val.hits += 1;
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
 
@@ -248,7 +251,7 @@ where
                 }
 
                 // if !matches {
-                    println!("Likely leak, needs rerun to confirm deterministic");
+                    // println!("Likely leak, needs rerun to confirm deterministic");
                     return (true, Some(output_data));
                 // }
 
@@ -257,7 +260,7 @@ where
                 hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
                 hash_val.public_output_hashes[0] == pub_out_hash 
             {
-                println!("Found an input for which full secret input was not stored, flagged for rerun");
+                // println!("Found an input for which full secret input was not stored, flagged for rerun");
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
                 return (true, Some(output_data));
             
@@ -268,9 +271,14 @@ where
                 } else {
                     panic!("Ow, this was a new public_out after all?");
                 }
+
+                if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                    panic!();
+                }
             }
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {
+                hits: 1,
                 public_input_full: None,
                 public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, vec![sec_in_hash])]),
                 public_input_hash: pub_in_hash,
@@ -279,6 +287,11 @@ where
                 secret_input_hashes: vec![sec_in_hash],
                 secret_inputs_full: Vec::new()
             });
+
+            
+            if !self.dict.get(&pub_in_hash).unwrap().public_output_hashes.contains(&pub_out_hash) {
+                panic!();
+            }
         }
 
         (false, None)
@@ -322,14 +335,20 @@ where
                     // update mappings from output to secret_in
                     let mut members = hash_val.public_output_hashes_to_secret_ins.get_mut(&old_pub_out_hash).unwrap();
                     members.retain(|&x| x != sec_in_hash);
-                    if members.len() == 0 { hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); }
+                    if members.is_empty() { 
+                        hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); 
+                        println!("Just removed {} from map", old_pub_out_hash);
+                    }
 
                     hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
-                    print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
-                    for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
-                        println!("{}: {:?}", out, in_vec);
+                    if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                        panic!("oof, missing {} from public out hashes: {:?}", pub_out_hash, hash_val.public_output_hashes);
                     }
-                    println!("]");
+                    // print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
+                    // for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
+                    //     println!("{}: {:?}", out, in_vec);
+                    // }
+                    // println!("]");
 
                     println!("Replaced incorrect output_hash with correct one");
                     return None;
@@ -340,25 +359,30 @@ where
                     self.violation_pub_ins.push(pub_in_hash);
                 }
 
+                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                hash_val.public_outputs_full.push(output_data);
+                hash_val.public_output_hashes.push(pub_out_hash);
+
                 if let Some(mut members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
                     panic!("OOH, had a map for {} in {:?}, but not in public_output_hashes: {:?}", pub_out_hash,
                         hash_val.public_output_hashes_to_secret_ins.keys(), hash_val.public_output_hashes);
                 } else {
                     hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
-                    print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
-                    for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
-                        println!("{}: {:?}", out, in_vec);
-                    }
+                    // print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
+                    // for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
+                    //     println!("{}: {:?}", out, in_vec);
+                    // }
                 }
 
-                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                hash_val.public_outputs_full.push(output_data);
-                hash_val.public_output_hashes.push(pub_out_hash);
+                if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                    panic!("oof, missing {} from public out hashes: {:?}", pub_out_hash, hash_val.public_output_hashes);
+                }
+
 
                 if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
-                    println!("Found a leak!, stdout: {:?}", 
-                        std::string::String::from_utf8_lossy(&hash_val.public_outputs_full.last().unwrap().stdout));
-                    println!("leak detected: {}", hash_val.extended_info_string());
+                    // println!("Found a leak!, stdout: {:?}", 
+                    //     std::string::String::from_utf8_lossy(&hash_val.public_outputs_full.last().unwrap().stdout));
+                    // println!("leak detected: {}", hash_val.extended_info_string());
                     
                     return Some(FailingHypertest {
                         test_one: (
@@ -378,7 +402,7 @@ where
                     });
                 }
 
-                println!("Found a likely leak, but don't have the original secret input stored to verify yet");
+                // println!("Found a likely leak, but don't have the original secret input stored to verify yet");
                 return None;
 
             // We didn't store the original output the first time so let's do that now!
@@ -387,11 +411,11 @@ where
                 hash_val.public_output_hashes[0] == pub_out_hash 
             {
 
-                println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
-                    std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
-                    std::string::String::from_utf8_lossy(&output_data.stdout),
-                    std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[0]),
-                    std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
+                // println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
+                //     std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
+                //     std::string::String::from_utf8_lossy(&output_data.stdout),
+                //     std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[0]),
+                //     std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
 
                 hash_val.public_outputs_full.insert(0, output_data);
                 hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
@@ -424,23 +448,32 @@ where
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
         // println!("calculating leakage, probability per pub_in: {}", prob);
+        let total_samples = self.dict.values().fold(0, |acc, x| acc + x.hits) as f64;
 
         for violation_pub_in_hash in &self.violation_pub_ins {
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
+            // ignore undersampled violations as probabilities are bad
+            if hash_val.hits < 1000 { continue; }
+
             let sample_count = hash_val.public_output_hashes_to_secret_ins
                 .values()
                 .fold(0, |acc, x| acc + x.len());
             // println!("  {}: ", violation_pub_in_hash);
+            let mut entropy = 0_f64;
             for (pub_out, sec_in) in &hash_val.public_output_hashes_to_secret_ins {
                 let prob = sec_in.len() as f64 / sample_count as f64;
-                output_violation_entropy_sum += prob * prob.log2();
+                entropy += prob * prob.log2();
                 // println!("    {}: (prob: {}/{}) (entropy_sum: {})", pub_out, sec_in.len(), sample_count, output_violation_entropy_sum);
             }
+            // Add weight to pub_outs with more samples
+            // output_violation_entropy_sum += hash_val.hits as f64 * entropy; 
+            output_violation_entropy_sum += entropy; 
 
-            let pub_in_prob = 1.0_f64 / self.dict.len() as f64;
+            let pub_in_prob = hash_val.hits as f64 / total_samples;
             violation_entropy_sum += pub_in_prob * pub_in_prob.log2();
         }
 
+        // let leaked_info_bits = - output_violation_entropy_sum / total_samples + violation_entropy_sum;
         let leaked_info_bits = - output_violation_entropy_sum + violation_entropy_sum;
         println!("Leaked {} bits", leaked_info_bits);
 
