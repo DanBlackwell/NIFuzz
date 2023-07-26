@@ -74,7 +74,9 @@ pub struct IOHashValue {
     /// Vector of public output hashes (note that if more than two
     /// are present then a leak has been witnessed)
     pub public_output_hashes: Vec<u64>,
-    public_output_hashes_to_secret_ins: HashMap<u64, u64>,
+    /// Mapping from public_output_hashes to a vector of secret_in's
+    /// that produce this public output
+    public_output_hashes_to_secret_ins: HashMap<u64, Vec<u64>>,
 
     /// Vector of full byte arrays for secret inputs that can 
     /// witness a leak
@@ -192,7 +194,7 @@ where
         stderr.hash(&mut hasher);
         let pub_out_hash = hasher.finish();
 
-        if let Some(hash_val) = self.dict.get(&pub_in_hash) {
+        if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
 
@@ -258,11 +260,19 @@ where
                 println!("Found an input for which full secret input was not stored, flagged for rerun");
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
                 return (true, Some(output_data));
+            
+            // We didn't find a new public_out, but we should update the mapping between public_out and secret_in
+            } else {
+                if let Some(sec_ins) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
+                    sec_ins.push(sec_in_hash);
+                } else {
+                    panic!("Ow, this was a new public_out after all?");
+                }
             }
         } else {
             self.dict.insert(pub_in_hash, IOHashValue {
                 public_input_full: None,
-                public_output_hashes_to_secret_ins: HashMap::new(),
+                public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, vec![sec_in_hash])]),
                 public_input_hash: pub_in_hash,
                 public_output_hashes: vec![pub_out_hash],
                 public_outputs_full: Vec::new(),
@@ -296,6 +306,7 @@ where
                         .iter()
                         .position(|&h| h == sec_in_hash)
                         .unwrap();
+                    let old_pub_out_hash = hash_val.public_output_hashes[pos];
                     hash_val.public_output_hashes[pos] = pub_out_hash;
 
                     let full_pos = if hash_val.public_output_hashes.len() > hash_val.public_outputs_full.len() {
@@ -308,12 +319,36 @@ where
                         hash_val.public_outputs_full[full_pos] = output_data;
                     }
 
+                    // update mappings from output to secret_in
+                    let mut members = hash_val.public_output_hashes_to_secret_ins.get_mut(&old_pub_out_hash).unwrap();
+                    members.retain(|&x| x != sec_in_hash);
+                    if members.len() == 0 { hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); }
+
+                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
+                    print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
+                    for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
+                        println!("{}: {:?}", out, in_vec);
+                    }
+                    println!("]");
+
                     println!("Replaced incorrect output_hash with correct one");
                     return None;
                 }
 
                 if hash_val.public_input_full.is_none() {
                     hash_val.public_input_full = Some(input.get_public_part_bytes().to_vec());
+                    self.violation_pub_ins.push(pub_in_hash);
+                }
+
+                if let Some(mut members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
+                    panic!("OOH, had a map for {} in {:?}, but not in public_output_hashes: {:?}", pub_out_hash,
+                        hash_val.public_output_hashes_to_secret_ins.keys(), hash_val.public_output_hashes);
+                } else {
+                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
+                    print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
+                    for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
+                        println!("{}: {:?}", out, in_vec);
+                    }
                 }
 
                 hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
@@ -388,16 +423,22 @@ where
     fn estimate_leakage(&self) -> f64 {
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
-        let prob = 1.0_f64 / self.dict.len() as f64;
+        // println!("calculating leakage, probability per pub_in: {}", prob);
 
         for violation_pub_in_hash in &self.violation_pub_ins {
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
-            let ins_count = hash_val.public_outputs_full.len() as f64;
-            for _pub_out in &hash_val.public_outputs_full {
-                output_violation_entropy_sum += (prob / ins_count) * (prob / ins_count).log2();
+            let sample_count = hash_val.public_output_hashes_to_secret_ins
+                .values()
+                .fold(0, |acc, x| acc + x.len());
+            // println!("  {}: ", violation_pub_in_hash);
+            for (pub_out, sec_in) in &hash_val.public_output_hashes_to_secret_ins {
+                let prob = sec_in.len() as f64 / sample_count as f64;
+                output_violation_entropy_sum += prob * prob.log2();
+                // println!("    {}: (prob: {}/{}) (entropy_sum: {})", pub_out, sec_in.len(), sample_count, output_violation_entropy_sum);
             }
 
-            violation_entropy_sum += prob * prob.log2();
+            let pub_in_prob = 1.0_f64 / self.dict.len() as f64;
+            violation_entropy_sum += pub_in_prob * pub_in_prob.log2();
         }
 
         let leaked_info_bits = - output_violation_entropy_sum + violation_entropy_sum;
