@@ -35,7 +35,9 @@ int main(int argc, char **argv) {
   unsigned char *secret_buf = public_buf + public_len;
   // printf("total len: %u, public: %u, secret:%u\n", len, public_len, secret_len);
 
-  if (secret_len >= 3 && !memcmp(secret_buf, "W0", 1)) {
+  if (secret_len == 1) abort();
+
+  if (!memcmp(secret_buf, "W0", 1)) {
     printf("Found it!\n");
   }
 

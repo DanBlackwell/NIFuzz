@@ -66,25 +66,25 @@ pub struct IOHashValue {
     /// Number of samples for this public_input_hash
     hits: usize,
     /// The hash of the public input this struct is describing
-    pub public_input_hash: u64,
+    public_input_hash: u64,
     /// Optional full public input vector; only populated if this 
     /// witnesses a policy violation
-    pub public_input_full: Option<Vec<u8>>,
+    public_input_full: Option<Vec<u8>>,
     /// Vector of secret input hashes (only one is stored for each 
     /// different public output)
-    pub secret_input_hashes: Vec<u64>,
+    secret_input_hashes: Vec<u64>,
     /// Vector of public output hashes (note that if more than two
     /// are present then a leak has been witnessed)
-    pub public_output_hashes: Vec<u64>,
+    public_output_hashes: Vec<u64>,
     /// Mapping from public_output_hashes to a vector of secret_in's
     /// that produce this public output
     public_output_hashes_to_secret_ins: HashMap<u64, Vec<u64>>,
 
     /// Vector of full byte arrays for secret inputs that can 
     /// witness a leak
-    pub secret_inputs_full: Vec<Vec<u8>>,
+    secret_inputs_full: Vec<Vec<u8>>,
     /// Vector of full public outputs that witness a leak
-    pub public_outputs_full: Vec<OutputData>
+    public_outputs_full: Vec<OutputData>
 }
 
 impl IOHashValue {
@@ -204,7 +204,6 @@ where
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
                     println!("Made the following observations (secret_in: public_out) for public_in: {:?}:", 
                         std::string::String::from_utf8_lossy(input.get_public_part_bytes()));
-                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
 
                     if hash_val.public_outputs_full.len() == 0 {
                         println!("For public in: {:?} and secret_in: {:?} found two different outputs: (hash only) {:?} and {:?}",
@@ -242,27 +241,35 @@ where
                     return (true, Some(output_data));
                 }
 
-                // let mut matches = false;
                 for secret_in in &hash_val.secret_inputs_full {
                     if input.get_secret_part_bytes() == secret_in {
-                        // matches = true;
                         panic!("Hash not found in hashes, but full input was?");
                     }
                 }
 
-                // if !matches {
-                    // println!("Likely leak, needs rerun to confirm deterministic");
-                    return (true, Some(output_data));
-                // }
+                return (true, Some(output_data));
 
             // We didn't store the original output the first time so let's do that now!
-            } else if hash_val.public_output_hashes.len() > 1 &&
-                hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
-                hash_val.public_output_hashes[0] == pub_out_hash 
+            } else if hash_val.public_output_hashes.len() > 1 && 
+                hash_val.secret_inputs_full.len() < hash_val.secret_input_hashes.len() 
             {
-                // println!("Found an input for which full secret input was not stored, flagged for rerun");
-                let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-                return (true, Some(output_data));
+                let mut already_stored = false;
+                for out_full in &hash_val.public_outputs_full {
+                    let mut hasher = DefaultHasher::new();
+                    out_full.stdout.hash(&mut hasher);
+                    out_full.stderr.hash(&mut hasher);
+
+                    if hasher.finish() == pub_out_hash {
+                        already_stored = true;
+                        break;
+                    }
+                }
+
+                if !already_stored {
+                    // println!("Found an input for which full secret input was not stored, flagged for rerun");
+                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
+                    return (true, Some(output_data));
+                }
             
             // We didn't find a new public_out, but we should update the mapping between public_out and secret_in
             } else {
@@ -272,11 +279,14 @@ where
                     panic!("Ow, this was a new public_out after all?");
                 }
 
+                // println!("pub_in {}, pub_out_hashes: {:?}", pub_in_hash, hash_val.public_output_hashes);
+
                 if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                     panic!();
                 }
             }
         } else {
+            // println!("Adding pub_in_hash {} with sec_in {}, pub_out {}", pub_in_hash, sec_in_hash, pub_out_hash);
             self.dict.insert(pub_in_hash, IOHashValue {
                 hits: 1,
                 public_input_full: None,
@@ -320,16 +330,32 @@ where
                         .position(|&h| h == sec_in_hash)
                         .unwrap();
                     let old_pub_out_hash = hash_val.public_output_hashes[pos];
+                    let sec_ins = hash_val.public_output_hashes_to_secret_ins.get(&old_pub_out_hash).unwrap();
                     hash_val.public_output_hashes[pos] = pub_out_hash;
+                    if let Some(replacement) = sec_ins.iter().find(|&&x| x != sec_in_hash) {
+                        hash_val.secret_input_hashes.push(*replacement);
+                        hash_val.public_output_hashes.push(old_pub_out_hash);
+                    }
 
-                    let full_pos = if hash_val.public_output_hashes.len() > hash_val.public_outputs_full.len() {
-                        pos - 1
-                    } else {
-                        pos
-                    };
-
-                    if hash_val.public_outputs_full.len() > 0 {
+                    if let Some(full_pos) = hash_val.public_outputs_full.iter().position(|buf| {
+                        let mut hasher = DefaultHasher::new();
+                        buf.stdout.hash(&mut hasher);
+                        buf.stderr.hash(&mut hasher);
+                        hasher.finish() == old_pub_out_hash
+                    }) {
                         hash_val.public_outputs_full[full_pos] = output_data;
+                    } else {
+                        hash_val.public_outputs_full.push(output_data);
+                    }
+
+                    if let Some(sec_full_pos) = hash_val.secret_inputs_full.iter()
+                        .position(|buf| hash(buf) == sec_in_hash) 
+                    {
+                        if hash_val.secret_inputs_full[sec_full_pos] != input.get_secret_part_bytes() {
+                            panic!("somehow hashes matched????");
+                        }
+                    } else {
+                        hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
                     }
 
                     // update mappings from output to secret_in
@@ -337,20 +363,12 @@ where
                     members.retain(|&x| x != sec_in_hash);
                     if members.is_empty() { 
                         hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); 
-                        println!("Just removed {} from map", old_pub_out_hash);
+                        // println!("Just removed {} from map", old_pub_out_hash);
                     }
 
                     hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
-                    if !hash_val.public_output_hashes.contains(&pub_out_hash) {
-                        panic!("oof, missing {} from public out hashes: {:?}", pub_out_hash, hash_val.public_output_hashes);
-                    }
-                    // print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
-                    // for (out, in_vec) in hash_val.public_output_hashes_to_secret_ins.iter() {
-                    //     println!("{}: {:?}", out, in_vec);
-                    // }
-                    // println!("]");
 
-                    println!("Replaced incorrect output_hash with correct one");
+                    // println!("pub_in: {}, Replaced incorrect output_hash {} with correct one {}", pub_in_hash, old_pub_out_hash, pub_out_hash);
                     return None;
                 }
 
@@ -359,13 +377,15 @@ where
                     self.violation_pub_ins.push(pub_in_hash);
                 }
 
-                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                hash_val.public_outputs_full.push(output_data);
-                hash_val.public_output_hashes.push(pub_out_hash);
-
                 if let Some(mut members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
-                    panic!("OOH, had a map for {} in {:?}, but not in public_output_hashes: {:?}", pub_out_hash,
-                        hash_val.public_output_hashes_to_secret_ins.keys(), hash_val.public_output_hashes);
+                    panic!("OOH, (pub_in: {}) had a map for {} in {:?} ({:?}), but not in public_output_hashes: {:?}, sec_in_hashes: {:?}", 
+                        pub_in_hash,
+                        pub_out_hash,
+                        hash_val.public_output_hashes_to_secret_ins.keys(),
+                        hash_val.public_output_hashes_to_secret_ins.get(&pub_out_hash).unwrap(),
+                        hash_val.public_output_hashes,
+                        hash_val.secret_input_hashes
+                    );
                 } else {
                     hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
                     // print!("public_out: secret_in mapping for {}: [\n", pub_out_hash);
@@ -373,6 +393,13 @@ where
                     //     println!("{}: {:?}", out, in_vec);
                     // }
                 }
+
+                hash_val.secret_input_hashes.push(sec_in_hash);
+                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                hash_val.public_outputs_full.push(output_data);
+                hash_val.public_output_hashes.push(pub_out_hash);
+
+                // println!("inserting new violation sec_in_hash: {} for pub_in: {}", sec_in_hash, pub_in_hash);
 
                 if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                     panic!("oof, missing {} from public out hashes: {:?}", pub_out_hash, hash_val.public_output_hashes);
@@ -407,8 +434,7 @@ where
 
             // We didn't store the original output the first time so let's do that now!
             } else if hash_val.public_output_hashes.len() > 1 &&
-                hash_val.secret_inputs_full.len() < hash_val.public_output_hashes.len() &&
-                hash_val.public_output_hashes[0] == pub_out_hash 
+                hash_val.secret_inputs_full.len() < hash_val.secret_input_hashes.len()
             {
 
                 // println!("Found a leak! stdout: {{{:?}:{:?}}} vs {{{:?}:{:?}}}", 
@@ -417,8 +443,17 @@ where
                 //     std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[0]),
                 //     std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
 
-                hash_val.public_outputs_full.insert(0, output_data);
-                hash_val.secret_inputs_full.insert(0, input.get_secret_part_bytes().to_vec());
+                // println!("inserting sec_in_hash: {} for pub_in: {}", sec_in_hash, pub_in_hash);
+
+                let pos = hash_val.public_output_hashes.iter().position(|&x| x == pub_out_hash).unwrap();
+                if pos < hash_val.public_outputs_full.len() {
+                    hash_val.public_outputs_full.insert(pos, output_data);
+                    hash_val.secret_inputs_full.insert(pos, input.get_secret_part_bytes().to_vec());
+                } else {
+                    hash_val.public_outputs_full.push(output_data);
+                    hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                }
+                hash_val.secret_input_hashes[pos] = sec_in_hash;
 
                 return Some(FailingHypertest {
                     test_one: (
@@ -448,7 +483,14 @@ where
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
         // println!("calculating leakage, probability per pub_in: {}", prob);
-        let total_samples = self.dict.values().fold(0, |acc, x| acc + x.hits) as f64;
+        let total_samples = self.dict.values()
+            .fold(0, |acc, x| 
+                if x.hits >= 1000 || x.public_output_hashes.len() < 2 { 
+                    acc + x.hits 
+                } else { 
+                    acc 
+                }
+            ) as f64;
 
         for violation_pub_in_hash in &self.violation_pub_ins {
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
@@ -461,7 +503,7 @@ where
             // println!("  {}: ", violation_pub_in_hash);
             let mut entropy = 0_f64;
             for (pub_out, sec_in) in &hash_val.public_output_hashes_to_secret_ins {
-                let prob = sec_in.len() as f64 / sample_count as f64;
+                let prob = sec_in.len() as f64 / total_samples;
                 entropy += prob * prob.log2();
                 // println!("    {}: (prob: {}/{}) (entropy_sum: {})", pub_out, sec_in.len(), sample_count, output_violation_entropy_sum);
             }
@@ -721,15 +763,43 @@ where
         self.scheduler.on_evaluation(state, &input, observers)?;
 
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, observers);
+        drop(observers);
+
         if needs_rerun {
-            let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data.unwrap());
-            match failing_hypertest {
-                Some(failing_hypertest) => { self.hypertest_feedback.estimate_leakage(); },
-                _ => ()
-            };
+            let output_data = output_data.unwrap();
+            let mut inconsistent = false;
+            for i in 0..100 {
+                let cur_exit = self.execute_input(state, executor, manager, &input)?;
+                if cur_exit != exit_kind {
+                    inconsistent = true;
+                    panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
+                    break;
+                }
+
+                let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+
+                let empty = Vec::new();
+                let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+                let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+
+                if output_data.stdout != *stdout || output_data.stderr != *stderr {
+                    inconsistent = true;
+                    println!("Expected consistent output: {:?} {:?} but got {:?} {:?} on run {}", 
+                        output_data.stdout, output_data.stderr, *stdout, *stderr, i);
+                    break;
+                }
+            }
+
+            if !inconsistent {
+                let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data);
+                match failing_hypertest {
+                    Some(failing_hypertest) => { self.hypertest_feedback.estimate_leakage(); },
+                    _ => ()
+                };
+            }
         }
         
-        self.process_execution(state, manager, input, observers, &exit_kind, send_events)
+        self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events)
     }
 }
 
