@@ -42,9 +42,10 @@ mod output_leak_fuzzer;
 mod pub_sec_input;
 mod pub_sec_mutations;
 mod hypertest_feedback;
+mod leak_fuzzer_state;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
-use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::InfoLeakChecker};
+use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState};
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 use pub_sec_mutations::pub_sec_mutations;
@@ -132,7 +133,7 @@ pub fn main() {
     let time_observer = TimeObserver::new("time");
 
     let output_observer = OutputObserver::new("output".to_string());
-    let output_feedback: OutputFeedback<OutputObserver, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>> = OutputFeedback::with_names("output_feedback", "output");
+    let output_feedback = OutputFeedback::new(&output_observer);
 
     // Feedback to rate the interestingness of an input
     // This one is composed by two Feedbacks in OR
@@ -154,7 +155,7 @@ pub fn main() {
     );
 
     // create a State from scratch
-    let mut state = StdState::new(
+    let mut state = LeakFuzzerState::new(
         // RNG
         StdRand::with_seed(current_nanos()),
         // Corpus that will be evolved, we keep it in memory for performance
@@ -162,6 +163,8 @@ pub fn main() {
         // Corpus in which we store solutions (crashes in this example),
         // on disk so the user can get them after stopping the fuzzer
         OnDiskCorpus::new(PathBuf::from("./crashes")).unwrap(),
+        // Only store the violations temporarily
+        InMemoryCorpus::<PubSecBytesInput>::new(),
         // States of the feedbacks.
         // The feedbacks can report the data that should persist in the State.
         &mut feedback,
@@ -180,8 +183,7 @@ pub fn main() {
     // A minimization+queue policy to get testcasess from the corpus
     let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
 
-    // A fuzzer with feedbacks and a corpus scheduler
-    let mut fuzzer: LeakFuzzer<MinimizerScheduler<QueueScheduler<StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, LenTimeMulTestcaseScore<StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, MapIndexesMetadata>, CombinedFeedback<MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>, u8>, TimeFeedback, LogicEagerOr, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, CombinedFeedback<CrashFeedback, MapFeedback<DifferentIsNovel, HitcountsMapObserver<StdMapObserver<'_, u8, false>>, MaxReducer, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>, u8>, LogicFastAnd, StdState<PubSecBytesInput, InMemoryCorpus<PubSecBytesInput>, RomuDuoJrRand, OnDiskCorpus<PubSecBytesInput>>>, (TimeObserver, (HitcountsMapObserver<StdMapObserver<'_, u8, false>>, (OutputObserver, ()))), InfoLeakChecker<PubSecBytesInput>> = LeakFuzzer::new(scheduler, feedback, objective);
+    let mut fuzzer = LeakFuzzer::new(scheduler, feedback, objective, InfoLeakChecker::new());
 
     // If we should debug the child
     // let debug_child = opt.debug_child;

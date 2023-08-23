@@ -68,29 +68,29 @@ impl OutputFeedbackMetadata {
 
 /// A [`OutputFeedback`] maintains a hashset of already seen outputs and considers interesting new ones
 #[derive(Serialize, Deserialize)]
-pub struct OutputFeedback<O, S> {
+pub struct OutputFeedback<O> {
     name: String,
     observer_name: String,
     /// Initial capacity of hash set
     capacity: usize,
-    o_type: PhantomData<(O, S)>,
+    o_type: PhantomData<O>,
 }
 
-impl<O, S> fmt::Debug for OutputFeedback<O, S> {
+impl<O> fmt::Debug for OutputFeedback<O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "name: {}, observer_name: {}, capacity: {}, o_type: {:?}",
             self.name, self.observer_name, self.capacity, self.o_type)
     }
 }
 
-impl<O, S> Named for OutputFeedback<O, S> {
+impl<O> Named for OutputFeedback<O> {
     #[inline]
     fn name(&self) -> &str {
         &self.name
     }
 }
 
-impl<O, S> HasObserverName for OutputFeedback<O, S> {
+impl<O> HasObserverName for OutputFeedback<O> {
     #[inline]
     fn observer_name(&self) -> &str {
         &self.observer_name
@@ -103,7 +103,7 @@ impl<O, S> HasObserverName for OutputFeedback<O, S> {
 /// runs of the target, producing many different feedbacks.
 const DEFAULT_CAPACITY: usize = 4096;
 
-impl<O, S> OutputFeedback<O, S>
+impl<O> OutputFeedback<O>
 where
     O: ObserverWithOutput + Named + Debug,
 {

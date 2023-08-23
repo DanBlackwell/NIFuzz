@@ -1,19 +1,21 @@
-
 extern crate alloc;
 use alloc::{borrow::ToOwned, string::ToString, vec::Vec};
-use nonblock::NonBlockingReader;
 use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
     sync::atomic::{compiler_fence, Ordering},
     time::Duration,
 };
+use nonblock::NonBlockingReader;
 use std::{
     ffi::{OsStr, OsString},
     io::{self, prelude::*, ErrorKind},
-    os::{unix::{io::RawFd, process::CommandExt}, fd::{BorrowedFd, AsFd}},
+    os::{
+        fd::{AsFd, BorrowedFd},
+        unix::{io::RawFd, process::CommandExt},
+    },
     path::Path,
-    process::{Command, Stdio, ChildStdout, ChildStderr},
+    process::{ChildStderr, ChildStdout, Command, Stdio},
 };
 
 use nix::{
@@ -35,7 +37,10 @@ use libafl::{
         tuples::{MatchName, Prepend},
         AsMutSlice, AsSlice, Truncate,
     },
-    executors::{Executor, ExitKind, HasObservers, forkserver::{HasForkserver, ConfigTarget}},
+    executors::{
+        forkserver::{ConfigTarget, HasForkserver},
+        Executor, ExitKind, HasObservers,
+    },
     inputs::{HasTargetBytes, Input, UsesInput},
     mutators::Tokens,
     observers::{MapObserver, Observer, ObserversTuple, UsesObservers},
@@ -133,9 +138,11 @@ impl ForkserverWithOutput {
             .spawn()
         {
             Ok(mut child) => {
-                nonblocking_stdout = NonBlockingReader::from_fd(child.stdout.take().unwrap()).unwrap();
-                nonblocking_stderr = NonBlockingReader::from_fd(child.stderr.take().unwrap()).unwrap();
-            },
+                nonblocking_stdout =
+                    NonBlockingReader::from_fd(child.stdout.take().unwrap()).unwrap();
+                nonblocking_stderr =
+                    NonBlockingReader::from_fd(child.stderr.take().unwrap()).unwrap();
+            }
             Err(err) => {
                 return Err(Error::illegal_state(format!(
                     "Could not spawn the forkserver: {err:#?}"
@@ -537,7 +544,10 @@ impl<'a, SP> ForkserverWithOutputExecutorBuilder<'a, SP> {
     /// in case no input file is specified.
     /// If `debug_child` is set, the child will print to `stdout`/`stderr`.
     #[allow(clippy::pedantic)]
-    pub fn build<OT, S>(&mut self, observers: OT) -> Result<ForkserverExecutorWithOutput<OT, S, SP>, Error>
+    pub fn build<OT, S>(
+        &mut self,
+        observers: OT,
+    ) -> Result<ForkserverExecutorWithOutput<OT, S, SP>, Error>
     where
         OT: ObserversTuple<S>,
         S: UsesInput,
@@ -614,7 +624,9 @@ impl<'a, SP> ForkserverWithOutputExecutorBuilder<'a, SP> {
     }
 
     #[allow(clippy::pedantic)]
-    fn build_helper(&mut self) -> Result<(ForkserverWithOutput, InputFile, Option<SP::ShMem>), Error>
+    fn build_helper(
+        &mut self,
+    ) -> Result<(ForkserverWithOutput, InputFile, Option<SP::ShMem>), Error>
     where
         SP: ShMemProvider,
     {
@@ -1138,7 +1150,9 @@ pub trait HasForkserverWithOutput {
     fn shmem(&self) -> &Option<<<Self as HasForkserverWithOutput>::SP as ShMemProvider>::ShMem>;
 
     /// The map of the fuzzer, mutable
-    fn shmem_mut(&mut self) -> &mut Option<<<Self as HasForkserverWithOutput>::SP as ShMemProvider>::ShMem>;
+    fn shmem_mut(
+        &mut self,
+    ) -> &mut Option<<<Self as HasForkserverWithOutput>::SP as ShMemProvider>::ShMem>;
 
     /// Whether testcases are expected in shared memory
     fn uses_shmem_testcase(&self) -> bool;

@@ -34,30 +34,27 @@ pub struct FailingHypertest<'a, I> {
     test_two: (I, &'a OutputData),
 }
 
-pub trait HypertestFeedback<I, S, OT> 
+pub trait HypertestFeedback<I>
 where 
     I: Input, 
-    S: HasCorpus,
-    OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
     /// Create a new empty HypertestFeedback object
     fn new() -> Self;
     /// Read the observers relevant observers and determine whether this input may be interesting
     /// (in which case it should be rerun to confirm that it is deterministic) 
-    fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>);
+    fn needs_rerun(&mut self, input: &I, output_observer: &OutputObserver) -> (bool, Option<OutputData>);
+    // fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>);
     /// Called when an interesting input is confirmed to be deterministic; in some cases this may
-    /// return a FailingHypertest, or None if this just fixes an entry that was previously stored 
+    /// return a tuple (FailingHypertest, isNewViolation), or None if this just fixes an entry that was previously stored 
     /// incorrectly (likely due to some oddity in the way the forkserver collects output) 
-    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<FailingHypertest<'_, I>>;
+    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<(FailingHypertest<'_, I>, bool)>;
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
 }
 
-impl<I, S, OT> HypertestFeedback<I, S, OT> for InfoLeakChecker<I>
+impl<I> HypertestFeedback<I> for InfoLeakChecker<I>
 where
     I: Input + PubSecInput,
-    S: HasCorpus,
-    OT: ObserversTuple<S> + Serialize + DeserializeOwned,
 {
     fn new() -> Self {
         Self {
@@ -70,8 +67,9 @@ where
         }
     }
 
-    fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>) {
-        let observer = observers.match_name::<OutputObserver>("output").unwrap();
+    fn needs_rerun(&mut self, input: &I, output_observer: &OutputObserver) -> (bool, Option<OutputData>) {
+        // let observer = observers.match_name::<OutputObserver>("output").unwrap();
+        let observer = output_observer;
 
         let empty = Vec::new();
         let stdout = match observer.stdout() { None => &empty, Some(o) => o };
@@ -193,7 +191,7 @@ where
         (false, None)
     }
 
-    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<FailingHypertest<'_, I>> {
+    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<(FailingHypertest<'_, I>, bool)> {
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
             val.hash(&mut hasher);
@@ -285,22 +283,25 @@ where
 
 
                 if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
-                    return Some(FailingHypertest {
-                        test_one: (
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(), 
-                                &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
+                    return Some((
+                        FailingHypertest {
+                            test_one: (
+                                I::from_pub_sec_bytes(
+                                    input.get_public_part_bytes(), 
+                                    &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
+                                ),
+                                &hash_val.public_outputs_full[hash_val.public_outputs_full.len() - 2]
                             ),
-                            &hash_val.public_outputs_full[hash_val.public_outputs_full.len() - 2]
-                        ),
-                        test_two: (
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(),
-                                input.get_secret_part_bytes()
+                            test_two: (
+                                I::from_pub_sec_bytes(
+                                    input.get_public_part_bytes(),
+                                    input.get_secret_part_bytes()
+                                ),
+                                &hash_val.public_outputs_full.last().unwrap()
                             ),
-                            &hash_val.public_outputs_full.last().unwrap()
-                        ),
-                    });
+                        },
+                        hash_val.secret_inputs_full.len() == 4 && hash_val.secret_input_hashes.len() > 4
+                    ));
                 }
 
                 // println!("Found a likely leak, but don't have the original secret input stored to verify yet");
@@ -320,22 +321,25 @@ where
                 }
                 hash_val.secret_input_hashes[pos] = sec_in_hash;
 
-                return Some(FailingHypertest {
-                    test_one: (
-                        I::from_pub_sec_bytes(
-                            input.get_public_part_bytes(), 
-                            &hash_val.secret_inputs_full[1]       
+                return Some((
+                    FailingHypertest {
+                        test_one: (
+                            I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(), 
+                                &hash_val.secret_inputs_full[1]       
+                            ),
+                            &hash_val.public_outputs_full[1]
                         ),
-                        &hash_val.public_outputs_full[1]
-                    ),
-                    test_two: (
-                        I::from_pub_sec_bytes(
-                            input.get_public_part_bytes(),
-                            input.get_secret_part_bytes()
+                        test_two: (
+                            I::from_pub_sec_bytes(
+                                input.get_public_part_bytes(),
+                                input.get_secret_part_bytes()
+                            ),
+                            &hash_val.public_outputs_full[0]
                         ),
-                        &hash_val.public_outputs_full[0]
-                    ),
-                });
+                    },
+                    hash_val.secret_inputs_full.len() <= 4
+                ));
             }
         } else {
             panic!("This should have already been added in needs_rerun!");

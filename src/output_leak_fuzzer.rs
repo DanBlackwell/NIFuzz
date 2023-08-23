@@ -8,9 +8,9 @@ use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::pub_sec_input::PubSecInput;
 use crate::output_observer::{ObserverWithOutput, OutputObserver};
 use crate::hypertest_feedback::HypertestFeedback;
+use crate::leak_fuzzer_state::HasViolations;
 
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
@@ -121,7 +121,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus + UsesInput,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     scheduler: CS,
     feedback: F,
@@ -137,7 +137,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     type State = CS::State;
 }
@@ -149,7 +149,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     type Scheduler = CS;
 
@@ -169,7 +169,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     type Feedback = F;
 
@@ -189,7 +189,7 @@ where
     OF: Feedback<CS::State>,
     CS::State: HasClientPerfMonitor + HasCorpus,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     type Objective = OF;
 
@@ -210,7 +210,7 @@ where
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
     <<CS as UsesState>::State as UsesInput>::Input: Input,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Evaluate if a set of observation channels has an interesting state
     fn process_execution<EM>(
@@ -327,9 +327,9 @@ where
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
-    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
+    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions + HasViolations,
     <<CS as UsesState>::State as UsesInput>::Input: Input,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
     #[inline]
@@ -350,7 +350,8 @@ where
 
         self.scheduler.on_evaluation(state, &input, observers)?;
 
-        let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, observers);
+        let observer = observers.match_name::<OutputObserver>("output").unwrap();
+        let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
         drop(observers);
 
         if needs_rerun {
@@ -381,7 +382,12 @@ where
             if !inconsistent {
                 let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data);
                 match failing_hypertest {
-                    Some(failing_hypertest) => { self.hypertest_feedback.estimate_leakage(); },
+                    Some((failing_hypertest, is_new_violation)) => { 
+                        if is_new_violation {
+                            state.violations_mut().add(Testcase::new(input.clone())).unwrap();
+                        }
+                        self.hypertest_feedback.estimate_leakage(); 
+                    },
                     _ => ()
                 };
             }
@@ -399,9 +405,9 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions,
+    CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions + HasViolations,
     <<CS as UsesState>::State as UsesInput>::Input: Input,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
     #[inline]
@@ -497,7 +503,7 @@ where
     CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase,
     ST: StagesTuple<E, EM, CS::State, Self>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     fn fuzz_one(
         &mut self,
@@ -554,14 +560,14 @@ where
     OF: Feedback<CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, OT>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Create a new `LeakFuzzer` with standard behavior.
-    pub fn new(scheduler: CS, feedback: F, objective: OF) -> Self {
+    pub fn new(scheduler: CS, feedback: F, objective: OF, hypertest_feedback: HTF) -> Self {
         Self {
             scheduler,
             feedback,
-            hypertest_feedback: HTF::new(),
+            hypertest_feedback,
             objective,
             phantom: PhantomData,
         }
@@ -609,7 +615,7 @@ where
     EM: UsesState<State = CS::State>,
     CS::State: UsesInput + HasExecutions + HasClientPerfMonitor + HasCorpus,
     E::Observers: Serialize + DeserializeOwned,
-    HTF: HypertestFeedback<<CS::State as UsesInput>::Input, CS::State, E::Observers>,
+    HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Runs the input and triggers observers and feedback
     fn execute_input(
