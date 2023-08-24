@@ -4,7 +4,7 @@ extern crate alloc;
 use alloc::string::ToString;
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
+use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, borrow::BorrowMut};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -357,7 +357,6 @@ where
         let observer = observers.match_name::<OutputObserver>("output").unwrap();
         if state.targeting_violations() {
             self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &observer);
-            self.hypertest_feedback.estimate_leakage();
         }
 
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
@@ -395,7 +394,6 @@ where
                         if is_new_violation {
                             state.violations_mut().add(Testcase::new(input.clone())).unwrap();
                         }
-                        self.hypertest_feedback.estimate_leakage(); 
                     },
                     _ => ()
                 };
@@ -558,7 +556,13 @@ where
         state.introspection_monitor_mut().mark_manager_time();
 
         {
-            let mut testcase = state.testcase_mut(idx)?;
+            let mut testcase = if state.targeting_violations() {
+                self.hypertest_feedback.estimate_leakage();
+                state.violations_mut().get(idx)?.borrow_mut()
+            } else {
+                state.corpus_mut().get(idx)?.borrow_mut()
+            };
+            // let mut testcase = state.testcase_mut(idx)?;
             let scheduled_count = testcase.scheduled_count();
 
             // increase scheduled count, this was fuzz_level in afl

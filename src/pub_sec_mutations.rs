@@ -53,7 +53,6 @@ where
 
         let sample = state.rand_mut().next();
         input.set_secret_part_bytes(&sample.to_ne_bytes());
-        println!("set value {sample}, buf now: {:?}", input.get_current_buf_seg());
         Ok(MutationResult::Mutated)
     }
 }
