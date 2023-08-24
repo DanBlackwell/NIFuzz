@@ -19,7 +19,7 @@ use libafl::{
     prelude::{
         ARITH_MAX,
         INTERESTING_8, INTERESTING_16, INTERESTING_32,
-        tuple_list, tuple_list_type,
+        tuple_list, tuple_list_type, BytesInput,
     },
     random_corpus_id,
     stages::mutational::MutatedTransform,
@@ -27,7 +27,50 @@ use libafl::{
     Error,
 };
 
-use crate::pub_sec_input::PubSecInput;
+use crate::pub_sec_input::{PubSecInput, CurrentMutateTarget};
+
+/// Bitflip mutation for inputs with a bytes vector
+#[derive(Default, Debug, Clone)]
+pub struct SecretUniformMutator;
+
+impl<I, S> Mutator<I, S> for SecretUniformMutator
+where
+    S: HasRand,
+    I: PubSecInput,
+{
+    fn mutate(
+        &mut self,
+        state: &mut S,
+        input: &mut I,
+        _stage_idx: i32,
+    ) -> Result<MutationResult, Error> {
+        input.set_current_mutate_target(CurrentMutateTarget::Secret);
+
+        match input.get_current_mutate_target() {
+            CurrentMutateTarget::Secret => (),
+            _ => panic!("Should have current mutate target set to secret")
+        };
+
+        let sample = state.rand_mut().next();
+        input.set_secret_part_bytes(&sample.to_ne_bytes());
+        println!("set value {sample}, buf now: {:?}", input.get_current_buf_seg());
+        Ok(MutationResult::Mutated)
+    }
+}
+
+impl Named for SecretUniformMutator {
+    fn name(&self) -> &str {
+        "SecretUniformMutator"
+    }
+}
+
+impl SecretUniformMutator {
+    /// Creates a new [`SecretUniformMutator`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 
 /// Tuple type of the mutations that compose the Havoc mutator

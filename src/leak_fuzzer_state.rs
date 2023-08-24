@@ -59,10 +59,12 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
     start_time: Duration,
     /// The corpus
     corpus: C,
-    // Solutions corpus
+    /// Solutions corpus
     solutions: SC,
-    // Violations corpus
+    /// Violations corpus
     violations: VC,
+    /// Are we targeting violations or corpus currently?
+    targeting_violations: bool,
     /// Metadata stored for this state by one of the components
     metadata: SerdeAnyMap,
     /// Metadata stored with names
@@ -79,13 +81,18 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
 }
 
 pub trait HasViolations: UsesInput {
-        /// The associated type implementing [`Violations`].
-        type Violations: Corpus<Input = <Self as UsesInput>::Input>;
+    /// The associated type implementing [`Violations`].
+    type Violations: Corpus<Input = <Self as UsesInput>::Input>;
 
-        /// The testcase corpus
-        fn violations(&self) -> &Self::Violations;
-        /// The testcase corpus (mutable)
-        fn violations_mut(&mut self) -> &mut Self::Violations;
+    /// The testcase corpus
+    fn violations(&self) -> &Self::Violations;
+    /// The testcase corpus (mutable)
+    fn violations_mut(&mut self) -> &mut Self::Violations;
+
+    /// Return bool indicating whether we are targeting violations or corpus
+    fn targeting_violations(&self) -> bool;
+    /// Set bool indicating whether we are targeting violations or corpus
+    fn set_targeting_violations(&mut self, targeting_violations: bool);
 }
 
 impl<I, C, R, SC, VC> HasViolations for LeakFuzzerState<I, C, R, SC, VC>
@@ -106,6 +113,14 @@ where
     #[inline]
     fn violations_mut(&mut self) -> &mut Self::Violations {
         &mut self.violations
+    }
+
+    fn targeting_violations(&self) -> bool {
+        self.targeting_violations
+    }
+
+    fn set_targeting_violations(&mut self, targeting_violations: bool) {
+        self.targeting_violations = targeting_violations;
     }
 }
 
@@ -625,6 +640,7 @@ where
             corpus,
             solutions,
             violations,
+            targeting_violations: false,
             max_size: DEFAULT_MAX_SIZE,
             #[cfg(feature = "introspection")]
             introspection_monitor: ClientPerfMonitor::new(),

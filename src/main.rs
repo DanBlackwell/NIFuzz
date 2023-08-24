@@ -43,9 +43,11 @@ mod pub_sec_input;
 mod pub_sec_mutations;
 mod hypertest_feedback;
 mod leak_fuzzer_state;
+mod leak_fuzzer_scheduler;
+mod leak_fuzzer_mutational_stage;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
-use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState};
+use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState, leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, leak_fuzzer_scheduler::RandLeakScheduler};
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 use pub_sec_mutations::pub_sec_mutations;
@@ -181,7 +183,8 @@ pub fn main() {
     let mut mgr = SimpleEventManager::new(monitor);
 
     // A minimization+queue policy to get testcasess from the corpus
-    let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
+    // let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
+    let scheduler = RandLeakScheduler::new();
 
     let mut fuzzer = LeakFuzzer::new(scheduler, feedback, objective, InfoLeakChecker::new());
 
@@ -266,7 +269,7 @@ pub fn main() {
     let mutator =
         StdScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
     // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
-    let mut stages = tuple_list!(StdMutationalStage::new(mutator));
+    let mut stages = tuple_list!(LeakFuzzerMutationalStage::new(mutator));
 
     fuzzer
         .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)

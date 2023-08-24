@@ -40,14 +40,21 @@ where
 {
     /// Create a new empty HypertestFeedback object
     fn new() -> Self;
+
     /// Read the observers relevant observers and determine whether this input may be interesting
     /// (in which case it should be rerun to confirm that it is deterministic) 
     fn needs_rerun(&mut self, input: &I, output_observer: &OutputObserver) -> (bool, Option<OutputData>);
+
     // fn needs_rerun(&mut self, input: &I, observers: &OT) -> (bool, Option<OutputData>);
     /// Called when an interesting input is confirmed to be deterministic; in some cases this may
     /// return a tuple (FailingHypertest, isNewViolation), or None if this just fixes an entry that was previously stored 
     /// incorrectly (likely due to some oddity in the way the forkserver collects output) 
     fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<(FailingHypertest<'_, I>, bool)>;
+
+    /// We already know that this input public part witnesses a violation, here is a uniform sampled secret
+    /// input that we can use to calculate the probability of witnessing a particular output
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_observer: &OutputObserver);
+
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
 }
@@ -179,6 +186,7 @@ where
             self.dict.insert(pub_in_hash, IOHashValue {
                 hits: 1,
                 public_input_full: None,
+                uniform_pub_outs_to_sec_ins: HashMap::new(),
                 public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, vec![sec_in_hash])]),
                 public_input_hash: pub_in_hash,
                 public_output_hashes: vec![pub_out_hash],
@@ -243,7 +251,7 @@ where
                     }
 
                     // update mappings from output to secret_in
-                    let mut members = hash_val.public_output_hashes_to_secret_ins.get_mut(&old_pub_out_hash).unwrap();
+                    let members = hash_val.public_output_hashes_to_secret_ins.get_mut(&old_pub_out_hash).unwrap();
                     members.retain(|&x| x != sec_in_hash);
                     if members.is_empty() { 
                         hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); 
@@ -259,7 +267,7 @@ where
                     self.violation_pub_ins.push(pub_in_hash);
                 }
 
-                if let Some(mut members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
+                if let Some(members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
                     panic!("OOH, (pub_in: {}) had a map for {} in {:?} ({:?}), but not in public_output_hashes: {:?}, sec_in_hashes: {:?}", 
                         pub_in_hash,
                         pub_out_hash,
@@ -348,6 +356,35 @@ where
         panic!("oops");
     }
 
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_observer: &OutputObserver) {
+        let observer = output_observer;
+
+        let empty = Vec::new();
+        let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+        let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+
+        let hash = |val: &[u8]| {
+            let mut hasher = DefaultHasher::new();
+            val.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let pub_in_hash = hash(input.get_public_part_bytes());
+        let sec_in_hash = hash(input.get_secret_part_bytes());
+
+        let mut hasher = DefaultHasher::new();
+        stdout.hash(&mut hasher);
+        stderr.hash(&mut hasher);
+        let pub_out_hash = hasher.finish();
+
+        let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
+        if let Some(existing) = hash_val.uniform_pub_outs_to_sec_ins.get_mut(&pub_out_hash) {
+            existing.push(sec_in_hash);
+        } else {
+            hash_val.uniform_pub_outs_to_sec_ins.insert(pub_out_hash, vec![sec_in_hash]);
+        }
+    }
+
     fn estimate_leakage(&self) -> f64 {
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
@@ -373,26 +410,30 @@ where
         let mut well_sampled = 0;
         for violation_pub_in_hash in &self.violation_pub_ins {
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
-            // ignore undersampled violations as probabilities are bad
-            if hash_val.hits < MIN_HITS { continue; }
-            if hash_val.hits > 2 * avg { println!("skipping entry with {} hits vs avg {}", hash_val.hits, avg); continue; }
+            if hash_val.uniform_pub_outs_to_sec_ins.len() == 0 {
+                continue;
+            }
+
+            // // ignore undersampled violations as probabilities are bad
+            // if hash_val.hits < MIN_HITS { continue; }
+            // if hash_val.hits > 2 * avg { println!("skipping entry with {} hits vs avg {}", hash_val.hits, avg); continue; }
             well_sampled += 1;
 
-            let sample_count = hash_val.public_output_hashes_to_secret_ins
+            let sample_count = hash_val.uniform_pub_outs_to_sec_ins
                 .values()
                 .fold(0, |acc, x| acc + x.len());
 
             let mut entropy = 0_f64;
             print!("Probability of outputs: [");
-            for (pub_out, sec_in) in &hash_val.public_output_hashes_to_secret_ins {
-                let prob = sec_in.len() as f64 / total_samples;
-                print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), total_samples);
+            for (pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
+                let prob = sec_in.len() as f64 / sample_count as f64;
+                print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
                 entropy += prob * prob.log2();
             }
             println!("]");
             output_violation_entropy_sum += entropy; 
 
-            let pub_in_prob = hash_val.public_output_hashes_to_secret_ins.values().fold(0, |acc, x| acc + x.len()) as f64 / total_samples;
+            let pub_in_prob = hash_val.uniform_pub_outs_to_sec_ins.values().fold(0, |acc, x| acc + x.len()) as f64 / total_samples;
             violation_entropy_sum += pub_in_prob * pub_in_prob.log2();
         }
 

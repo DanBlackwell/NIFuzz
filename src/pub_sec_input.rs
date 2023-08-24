@@ -45,6 +45,7 @@ pub trait PubSecInput { // : HasBytesVec {
 
     fn get_public_part_bytes(&self) -> &[u8];
     fn get_secret_part_bytes(&self) -> &[u8];
+    fn set_secret_part_bytes(&mut self, new_buf: &[u8]);
 
     fn get_current_mutate_target(&self) -> CurrentMutateTarget;
     fn set_current_mutate_target(&mut self, new_target: CurrentMutateTarget);
@@ -77,6 +78,13 @@ impl PubSecInput for PubSecBytesInput {
         let len_indicator = std::mem::size_of::<u32>();
         let start = len_indicator + self.public_len;
         &self.raw_bytes[start..]
+    }
+
+    fn set_secret_part_bytes(&mut self, new_buf: &[u8]) {
+        let len_indicator = std::mem::size_of::<u32>();
+        let start = len_indicator + self.public_len;
+        self.raw_bytes.drain(start..);
+        self.raw_bytes.append(&mut new_buf.to_owned());
     }
 
     fn get_current_mutate_target(&self) -> CurrentMutateTarget {
