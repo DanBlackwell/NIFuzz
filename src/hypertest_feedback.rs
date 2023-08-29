@@ -390,10 +390,11 @@ where
         let mut violation_entropy_sum = 0.0_f64;
         const MIN_HITS: usize = 1_000;
 
-        // let filtered = self.violation_pub_ins.iter()
-        //     .map(|x| self.dict.get(x).unwrap())
-        //     .filter(|x| x.hits >= MIN_HITS);
-        // let (sum, len) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + 1));
+        let filtered = self.violation_pub_ins.iter()
+            .map(|x| self.dict.get(x).unwrap())
+            .filter(|x| x.hits >= MIN_HITS);
+        let (sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 10 { 1 } else { 0 }));
+        let pub_in_prob = 1.0f64 / (well_sampled_pubs as f64);
 
         let mut well_sampled = 0;
         for violation_pub_in_hash in &self.violation_pub_ins {
@@ -404,27 +405,26 @@ where
 
             well_sampled += 1;
 
+            violation_entropy_sum += pub_in_prob * pub_in_prob.log2();
+
             let sample_count = hash_val.uniform_pub_outs_to_sec_ins
                 .values()
                 .fold(0, |acc, x| acc + x.len());
 
             let mut entropy = 0_f64;
-            print!("Probability of outputs: [");
+            // print!("Probability of outputs: [");
             for (pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
-                let prob = sec_in.len() as f64 / sample_count as f64;
-                print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
+                let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
+                // print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
                 entropy += prob * prob.log2();
             }
-            println!("]");
+            // println!("]");
             output_violation_entropy_sum += entropy; 
 
-            // let pub_in_prob = hash_val.uniform_pub_outs_to_sec_ins.values().fold(0, |acc, x| acc + x.len()) as f64 / total_samples;
-            let pub_in_prob = 1.0f64 / self.dict.len() as f64;
-            violation_entropy_sum += pub_in_prob * pub_in_prob.log2();
         }
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
-        println!("Leaked {} bits from {} well sampled violations", leaked_info_bits, well_sampled);
+        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs})", leaked_info_bits, well_sampled);
 
         leaked_info_bits
     }

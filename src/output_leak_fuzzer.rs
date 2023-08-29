@@ -390,7 +390,7 @@ where
             if !inconsistent {
                 let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data);
                 match failing_hypertest {
-                    Some((failing_hypertest, is_new_violation)) => { 
+                    Some((_failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
                             state.violations_mut().add(Testcase::new(input.clone())).unwrap();
                         }
