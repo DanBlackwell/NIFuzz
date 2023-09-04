@@ -53,7 +53,7 @@ pub struct OutputData {
 }
 
 impl OutputData {
-    fn to_string(&self)  -> String{
+    pub fn to_string(&self) -> String {
         format!("stdout: {:?}, stderr: {:?}", 
             std::string::String::from_utf8_lossy(&self.stdout),
             std::string::String::from_utf8_lossy(&self.stderr))
@@ -367,6 +367,7 @@ where
             let mut inconsistent = false;
             for i in 0..100 {
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
+
                 if cur_exit != exit_kind {
                     inconsistent = true;
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);

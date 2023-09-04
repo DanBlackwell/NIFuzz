@@ -57,8 +57,8 @@ mac_alias = "fuzzer_unix"
 windows_alias = "unsupported"
 
 [tasks.fuzzer_unix]
-command = "${CARGO_TARGET_DIR}/release/libafl_cc"
-args = ["${PROJECT_DIR}/src/program.c", "-o", "${FUZZER_NAME}", "-lm"]
+command = "${CARGO_TARGET_DIR}/release/libafl_cxx"
+args = ["${PROJECT_DIR}/src/IFSpec_banking_insecure.cpp", "-o", "${FUZZER_NAME}", "-lm"]
 dependencies = [ "cxx", "cc" ]
 
 # Crashing Harness
@@ -68,8 +68,8 @@ mac_alias = "fuzzer_crash_unix"
 windows_alias = "unsupported"
 
 [tasks.fuzzer_crash_unix]
-command = "${CARGO_TARGET_DIR}/release/libafl_cc"
-args = ["${PROJECT_DIR}/src/program.c", "-o", "${FUZZER_NAME}_crash", "-lm"]
+command = "${CARGO_TARGET_DIR}/release/libafl_cxx"
+args = ["${PROJECT_DIR}/src/IFSpec_banking_insecure.cpp", "-o", "${FUZZER_NAME}_crash", "-lm"]
 dependencies = [ "crash_cxx", "crash_cc" ]
 
 # Run the fuzzer

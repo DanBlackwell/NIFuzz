@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
 use serde::{Serialize, de::DeserializeOwned};
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
+use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
 use libafl::{
     observers::ObserversTuple,
     prelude::{Input, HasCorpus}
@@ -97,6 +97,10 @@ where
         let pub_out_hash = hasher.finish();
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+            if let Some(full) = hash_val.public_input_full.as_ref() {
+                debug_assert!(input.get_public_part_bytes() == full);
+            }
+
             hash_val.hits += 1;
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
@@ -289,7 +293,6 @@ where
                     panic!("oof, missing {} from public out hashes: {:?}", pub_out_hash, hash_val.public_output_hashes);
                 }
 
-
                 if hash_val.secret_inputs_full.len() > 2 && hash_val.secret_inputs_full.len() % 2 == 0 {
                     return Some((
                         FailingHypertest {
@@ -396,6 +399,8 @@ where
         let (sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 10 { 1 } else { 0 }));
         let pub_in_prob = 1.0f64 / (well_sampled_pubs as f64);
 
+        let valid_count = self.violation_pub_ins.iter().fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});
+
         let mut well_sampled = 0;
         for violation_pub_in_hash in &self.violation_pub_ins {
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
@@ -412,19 +417,36 @@ where
                 .fold(0, |acc, x| acc + x.len());
 
             let mut entropy = 0_f64;
-            // print!("Probability of outputs: [");
+            print!("Probability of outputs: [");
             for (pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
                 let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
-                // print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
+                print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
                 entropy += prob * prob.log2();
             }
-            // println!("]");
+
+            let non_uniform_set: HashSet<&u64> = HashSet::from_iter(hash_val.public_output_hashes_to_secret_ins.keys());
+            let uniform_set = HashSet::from_iter(hash_val.uniform_pub_outs_to_sec_ins.keys());
+            let diff = non_uniform_set.difference(&uniform_set);
+
+            for &&pub_out in diff {
+                let prob = pub_in_prob * (1f64 / sample_count as f64);
+                print!("[non_uniform] {}: {} (raw {} / {}), ", pub_out, prob, 1, sample_count);
+                entropy += prob * prob.log2();
+            }
+
+            println!("]");
             output_violation_entropy_sum += entropy; 
+
+            // if hash_val.secret_inputs_full.len() > 2 {
+            //     println!("{{ pub: {:?}, sec1: {:?}, sec2: {:?}, sec3: {:?} }} => {{ out1: {}, out2: {}, out3: {} }}",
+            //         hash_val.public_input_full, hash_val.secret_inputs_full[0], hash_val.secret_inputs_full[1], hash_val.secret_inputs_full[2],
+            //         hash_val.public_outputs_full[0].to_string(), hash_val.public_outputs_full[1].to_string(), hash_val.public_outputs_full[2].to_string());
+            // }
 
         }
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
-        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs})", leaked_info_bits, well_sampled);
+        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
 
         leaked_info_bits
     }

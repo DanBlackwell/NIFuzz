@@ -25,7 +25,7 @@ use libafl::{
     inputs::{BytesInput, HasBytesVec, HasTargetBytes, Input},
 };
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum CurrentMutateTarget {
     Public,
     Secret,
@@ -69,6 +69,7 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn get_public_part_bytes(&self) -> &[u8] {
+        debug_assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         let len_indicator = std::mem::size_of::<u32>();
         let end = len_indicator + self.public_len;
         &self.raw_bytes[len_indicator..end]
@@ -153,6 +154,7 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn get_mutable_current_buf_seg(&mut self) -> &mut [u8] {
+        debug_assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         let len_indicator = std::mem::size_of::<u32>();
         let public_end = len_indicator + self.public_len;
         match self.current_mutate_target {
@@ -273,6 +275,8 @@ impl PubSecInput for PubSecBytesInput {
         start_pos = end_pos;
         temp[start_pos..self.raw_bytes.len()].copy_from_slice(&self.raw_bytes[second.end..]);
 
+        self.raw_bytes = temp;
+
         match self.current_mutate_target {
             CurrentMutateTarget::All => if first.end <= self.public_len + offset && second.start >= self.public_len + offset {
                 self.set_public_len(self.public_len + second.len() - first.len());
@@ -281,8 +285,6 @@ impl PubSecInput for PubSecBytesInput {
         };
 
         // println!("After swap:\n{:?}\npub: {}, sec: {}", temp, self.public_len, self.secret_len);
-
-        self.raw_bytes = temp;
     }
 
     fn get_total_len(&self) -> usize {

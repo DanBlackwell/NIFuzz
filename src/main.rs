@@ -235,39 +235,10 @@ pub fn main() {
 
     state.add_metadata(tokens);
 
-    // let mutations = tuple_list!(
-    //     PubSecBitFlipMutator::new(),
-    //     PubSecByteDecMutator::new(),
-    //     PubSecByteFlipMutator::new(),
-    //     PubSecByteIncMutator::new(),
-    //     PubSecByteNegMutator::new(),
-    //     PubSecByteRandMutator::new(),
-    //     PubSecBytesDeleteMutator::new(),
-
-    //     PubSecByteAddMutator::new(),
-    //     PubSecWordAddMutator::new(),
-    //     PubSecDwordAddMutator::new(),
-    //     PubSecQwordAddMutator::new(),
-
-    //     PubSecByteInterestingMutator::new(),
-    //     PubSecWordInterestingMutator::new(),
-    //     PubSecDwordInterestingMutator::new(),
-
-    //     PubSecBytesExpandMutator::new(),
-    //     PubSecBytesInsertMutator::new(),
-    //     PubSecBytesRandInsertMutator::new(),
-    //     PubSecBytesSetMutator::new(),
-    //     PubSecBytesRandSetMutator::new(),
-    //     PubSecBytesCopyMutator::new(),
-
-    //     PubSecCrossoverInsertMutator::new(),
-    //     PubSecCrossoverReplaceMutator::new(),
-    //     PubSecSpliceMutator::new(),
-    // );
-
     // Setup a mutational stage with a basic bytes mutator
     let mutator =
         StdScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
+        // LeakFuzzerScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
     // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
     let mut stages = tuple_list!(LeakFuzzerMutationalStage::new(mutator));
 
@@ -275,4 +246,3 @@ pub fn main() {
         .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
         .expect("Error in the fuzzing loop");
 }
-
