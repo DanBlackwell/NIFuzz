@@ -102,6 +102,7 @@ pub type PubSecMutationsType = tuple_list_type!(
     PubSecCrossoverInsertMutator,
     PubSecCrossoverReplaceMutator,
     PubSecSpliceMutator,
+    PubSecSegmentCopyMutator
 );
 
 /// Get the mutations that compose the Havoc mutator
@@ -136,6 +137,7 @@ pub fn pub_sec_mutations() -> PubSecMutationsType {
         PubSecCrossoverInsertMutator::new(),
         PubSecCrossoverReplaceMutator::new(),
         PubSecSpliceMutator::new(),
+        PubSecSegmentCopyMutator::new(),
     )
 }
 
@@ -1168,6 +1170,64 @@ impl Named for PubSecSpliceMutator {
 
 impl PubSecSpliceMutator {
     /// Creates a new [`PubSecSpliceMutator`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+
+/// Copy the complete Public or Secret segment from a random testcase into the current input
+#[derive(Debug, Default)]
+pub struct PubSecSegmentCopyMutator;
+
+impl<S> Mutator<S::Input, S> for PubSecSegmentCopyMutator
+where
+    S: HasCorpus + HasRand,
+    S::Input: PubSecInput,
+{
+    #[allow(clippy::cast_sign_loss)]
+    fn mutate(
+        &mut self,
+        state: &mut S,
+        input: &mut S::Input,
+        _stage_idx: i32,
+    ) -> Result<MutationResult, Error> {
+        if input.get_current_mutate_target() == CurrentMutateTarget::All {
+            return Ok(MutationResult::Skipped);
+        }
+
+        // We don't want to use the testcase we're already using for splicing
+        let idx = random_corpus_id!(state.corpus(), state.rand_mut());
+        if let Some(cur) = state.corpus().current() {
+            if idx == *cur {
+                return Ok(MutationResult::Skipped);
+            }
+        }
+
+        let mut other_testcase = state.corpus().get(idx)?.borrow_mut();
+        // No need to load the input again, it'll still be cached.
+        let other = other_testcase.input_mut().as_ref().unwrap();
+        let other_bytes = match input.get_current_mutate_target() {
+            CurrentMutateTarget::Public => other.get_public_part_bytes(),
+            CurrentMutateTarget::Secret => other.get_secret_part_bytes(),
+            CurrentMutateTarget::All => panic!(),
+        };
+
+        input.update_current_from_bytes(other_bytes);
+
+        Ok(MutationResult::Mutated)
+    }
+}
+
+impl Named for PubSecSegmentCopyMutator {
+    fn name(&self) -> &str {
+        "PubSecSegmentCopyMutator"
+    }
+}
+
+impl PubSecSegmentCopyMutator {
+    /// Creates a new [`PubSecSegmentCopyMutator`].
     #[must_use]
     pub fn new() -> Self {
         Self

@@ -51,7 +51,7 @@ pub trait PubSecInput { // : HasBytesVec {
     fn set_current_mutate_target(&mut self, new_target: CurrentMutateTarget);
 
     fn get_current_bytesinput(&self) -> BytesInput;
-    fn update_current_from_bytesinput(&mut self, mutated_input: &BytesInput);
+    fn update_current_from_bytes(&mut self, mutated_input: &[u8]);
 
     fn get_current_buf_seg(&self) -> &[u8];
     fn get_mutable_current_buf_seg(&mut self) -> &mut [u8];
@@ -106,37 +106,39 @@ impl PubSecInput for PubSecBytesInput {
         )
     }
 
-    fn update_current_from_bytesinput(&mut self, mutated_input: &BytesInput) {
+    fn update_current_from_bytes(&mut self, mutated_input: &[u8]) {
         match self.current_mutate_target {
             CurrentMutateTarget::Public => {
-                if self.public_len == mutated_input.bytes().len() {
+                if self.public_len == mutated_input.len() {
                     let len_indicator = std::mem::size_of::<u32>();
                     let end = len_indicator + self.public_len;
                     for idx in len_indicator..end {
-                        self.raw_bytes[idx] = mutated_input.bytes()[idx - len_indicator];
+                        self.raw_bytes[idx] = mutated_input[idx - len_indicator];
                     }
                 } else {
-                    self.raw_bytes = Self::new_raw_bytes(mutated_input.bytes(), self.get_secret_part_bytes());
+                    self.raw_bytes = Self::new_raw_bytes(mutated_input, self.get_secret_part_bytes());
+                    self.public_len = mutated_input.len();
                 }
             },
             CurrentMutateTarget::Secret => {
-                if self.secret_len == mutated_input.bytes().len() {
+                if self.secret_len == mutated_input.len() {
                     let len_indicator = std::mem::size_of::<u32>();
                     let start = len_indicator + self.public_len;
                     for idx in start..self.raw_bytes.len() {
-                        self.raw_bytes[idx] = mutated_input.bytes()[idx - start];
+                        self.raw_bytes[idx] = mutated_input[idx - start];
                     }
                 } else {
-                    self.raw_bytes = Self::new_raw_bytes(self.get_public_part_bytes(), mutated_input.bytes());
+                    self.raw_bytes = Self::new_raw_bytes(self.get_public_part_bytes(), mutated_input);
+                    self.secret_len = mutated_input.len();
                 }
             },
             CurrentMutateTarget::All => { 
-                if self.secret_len + self.public_len != mutated_input.bytes().len() {
+                if self.secret_len + self.public_len != mutated_input.len() {
                     panic!();
                 } else {
                     let len_indicator = std::mem::size_of::<u32>();
                     for idx in len_indicator..self.raw_bytes.len() {
-                        self.raw_bytes[idx] = mutated_input.bytes()[idx - len_indicator];
+                        self.raw_bytes[idx] = mutated_input[idx - len_indicator];
                     }
                 }
             }
@@ -178,6 +180,7 @@ impl PubSecInput for PubSecBytesInput {
                 let offset = len_indicator + self.public_len;
                 let adjusted = (range.start + offset)..(range.end + offset);
                 self.raw_bytes.drain(adjusted);
+                self.secret_len = self.raw_bytes.len() - offset;
             },
             CurrentMutateTarget::All => {
                 if range.start < self.public_len {
@@ -192,6 +195,7 @@ impl PubSecInput for PubSecBytesInput {
 
                 let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
                 self.raw_bytes.drain(adjusted);
+                self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
             }
         }    
     }
@@ -218,6 +222,7 @@ impl PubSecInput for PubSecBytesInput {
 
                 self.raw_bytes.copy_within(adjusted_start..old_len, adjusted_start + bytes.len());
                 self.raw_bytes[adjusted_start..adjusted_end].copy_from_slice(bytes);
+                self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
             },
             CurrentMutateTarget::All => {
                 if adjusted_start < len_indicator + self.public_len {
@@ -227,6 +232,7 @@ impl PubSecInput for PubSecBytesInput {
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
                 self.raw_bytes.copy_within(adjusted_start..old_len, adjusted_start + bytes.len());
                 self.raw_bytes[adjusted_start..adjusted_end].copy_from_slice(bytes);
+                self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
             }
         }    
     }
