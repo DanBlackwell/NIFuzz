@@ -107,6 +107,7 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn update_current_from_bytes(&mut self, mutated_input: &[u8]) {
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
         match self.current_mutate_target {
             CurrentMutateTarget::Public => {
                 if self.public_len == mutated_input.len() {
@@ -117,7 +118,7 @@ impl PubSecInput for PubSecBytesInput {
                     }
                 } else {
                     self.raw_bytes = Self::new_raw_bytes(mutated_input, self.get_secret_part_bytes());
-                    self.public_len = mutated_input.len();
+                    self.set_public_len(mutated_input.len());
                 }
             },
             CurrentMutateTarget::Secret => {
@@ -125,6 +126,9 @@ impl PubSecInput for PubSecBytesInput {
                     let len_indicator = std::mem::size_of::<u32>();
                     let start = len_indicator + self.public_len;
                     for idx in start..self.raw_bytes.len() {
+                        if self.raw_bytes.len() == 0 { panic!(); }
+                        if mutated_input.len() == 0 { panic!("raw_bytes: {:?}, pub_len: {}, sec_len: {}, mutated: {:?}", self.raw_bytes, self.public_len, self.secret_len, mutated_input); }
+                        if idx - start >= mutated_input.len() { panic!("raw_bytes: {:?}, pub_len: {}, sec_len: {}, mutated: {:?}", self.raw_bytes, self.public_len, self.secret_len, mutated_input); }
                         self.raw_bytes[idx] = mutated_input[idx - start];
                     }
                 } else {
@@ -143,6 +147,7 @@ impl PubSecInput for PubSecBytesInput {
                 }
             }
         }
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn get_current_buf_seg(&self) -> &[u8] {
@@ -168,6 +173,7 @@ impl PubSecInput for PubSecBytesInput {
 
     fn remove_bytes_in_range(&mut self, range: Range<usize>) {
         if range.is_empty() { return; }
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         let len_indicator = std::mem::size_of::<u32>();
         match self.current_mutate_target {
@@ -183,6 +189,9 @@ impl PubSecInput for PubSecBytesInput {
                 self.secret_len = self.raw_bytes.len() - offset;
             },
             CurrentMutateTarget::All => {
+                let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
+                self.raw_bytes.drain(adjusted);
+
                 if range.start < self.public_len {
                     if range.end > self.public_len {
                         // println!("removing range {:?}, lens before: public {}, total {}; after: public {}",
@@ -192,16 +201,14 @@ impl PubSecInput for PubSecBytesInput {
                         self.set_public_len(self.public_len - range.end + range.start);
                     }
                 }
-
-                let adjusted = (range.start + len_indicator)..(range.end + len_indicator);
-                self.raw_bytes.drain(adjusted);
-                self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
             }
         }    
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn insert_bytes_at_pos(&mut self, bytes: &[u8], start_pos: usize) {
         if bytes.is_empty() { return; }
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         let len_indicator = std::mem::size_of::<u32>();
         let adjusted_start = start_pos + len_indicator;
@@ -210,12 +217,12 @@ impl PubSecInput for PubSecBytesInput {
 
         match self.current_mutate_target {
             CurrentMutateTarget::Public => {
-                self.set_public_len(self.public_len + bytes.len());
-
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
 
                 self.raw_bytes.copy_within(adjusted_start..old_len, adjusted_start + bytes.len());
                 self.raw_bytes[adjusted_start..adjusted_end].copy_from_slice(bytes);
+
+                self.set_public_len(self.public_len + bytes.len());
             },
             CurrentMutateTarget::Secret => {
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
@@ -225,19 +232,20 @@ impl PubSecInput for PubSecBytesInput {
                 self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
             },
             CurrentMutateTarget::All => {
-                if adjusted_start < len_indicator + self.public_len {
-                    self.set_public_len(self.public_len + bytes.len());
-                }
-
                 self.raw_bytes.resize(self.raw_bytes.len() + bytes.len(), 0);
                 self.raw_bytes.copy_within(adjusted_start..old_len, adjusted_start + bytes.len());
                 self.raw_bytes[adjusted_start..adjusted_end].copy_from_slice(bytes);
-                self.secret_len = self.raw_bytes.len() - len_indicator - self.public_len;
+
+                if adjusted_start < len_indicator + self.public_len {
+                    self.set_public_len(self.public_len + bytes.len());
+                }
             }
         }    
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn swap_bytes_in_ranges(&mut self, range_1: Range<usize>, range_2: Range<usize>) {
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         if (range_2.start >= range_1.start && range_2.start < range_1.end) ||
             (range_2.end > range_1.start && range_2.end < range_1.end) ||
@@ -290,6 +298,7 @@ impl PubSecInput for PubSecBytesInput {
             _ => ()
         };
 
+        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
         // println!("After swap:\n{:?}\npub: {}, sec: {}", temp, self.public_len, self.secret_len);
     }
 
@@ -346,7 +355,6 @@ impl Input for PubSecBytesInput {
             _ => panic!("is not a JSON object!")
         };
 
-        println!("pub: {:?}, sec: {:?}", public, secret);
         Ok(PubSecBytesInput::from_pub_sec_bytes(&public, &secret))
     }
 

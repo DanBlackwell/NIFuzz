@@ -88,9 +88,6 @@ pub type PubSecMutationsType = tuple_list_type!(
     PubSecWordInterestingMutator,
     PubSecDwordInterestingMutator,
     PubSecBytesDeleteMutator,
-    PubSecBytesDeleteMutator,
-    PubSecBytesDeleteMutator,
-    PubSecBytesDeleteMutator,
     PubSecBytesExpandMutator,
     PubSecBytesInsertMutator,
     PubSecBytesRandInsertMutator,
@@ -122,9 +119,6 @@ pub fn pub_sec_mutations() -> PubSecMutationsType {
         PubSecByteInterestingMutator::new(),
         PubSecWordInterestingMutator::new(),
         PubSecDwordInterestingMutator::new(),
-        PubSecBytesDeleteMutator::new(),
-        PubSecBytesDeleteMutator::new(),
-        PubSecBytesDeleteMutator::new(),
         PubSecBytesDeleteMutator::new(),
         PubSecBytesExpandMutator::new(),
         PubSecBytesInsertMutator::new(),
@@ -580,7 +574,7 @@ where
         }
 
         let range = rand_range(state, size, min(16, max_size - size));
-        let to_copy = input.get_mutable_current_buf_seg()[range.start..range.end].to_owned();
+        let to_copy = input.get_current_buf_seg()[range.start..range.end].to_owned();
         input.insert_bytes_at_pos(&to_copy, range.start);
 
         Ok(MutationResult::Mutated)
@@ -633,7 +627,7 @@ where
             }
         }
 
-        let val = input.get_mutable_current_buf_seg()[state.rand_mut().below(size as u64) as usize];
+        let val = input.get_current_buf_seg()[state.rand_mut().below(size as u64) as usize];
         let buf = vec![val; amount];
         input.insert_bytes_at_pos(&buf, offset);
 
@@ -978,7 +972,7 @@ where
         let other_size = {
             let mut other_testcase = state.corpus().get(idx)?.borrow_mut();
             other_testcase.load_input(state.corpus())?;
-            let mut alt_input = other_testcase.input_mut().as_mut().unwrap();
+            let alt_input = other_testcase.input_mut().as_mut().unwrap();
             alt_input.set_current_mutate_target(input.get_current_mutate_target());
             alt_input.get_current_buf_seg().len()
         };
@@ -1046,7 +1040,7 @@ where
         let other_size = {
             let mut other_testcase = state.corpus().get(idx)?.borrow_mut();
             other_testcase.load_input(state.corpus())?;
-            let mut alt_input = other_testcase.input_mut().as_mut().unwrap();
+            let alt_input = other_testcase.input_mut().as_mut().unwrap();
             alt_input.set_current_mutate_target(input.get_current_mutate_target());
             alt_input.get_current_buf_seg().len()
         };

@@ -45,9 +45,10 @@ mod hypertest_feedback;
 mod leak_fuzzer_state;
 mod leak_fuzzer_scheduler;
 mod leak_fuzzer_mutational_stage;
+mod STADS;
 use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
-use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState, leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, leak_fuzzer_scheduler::RandLeakScheduler};
+use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState, leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, leak_fuzzer_scheduler::RandLeakScheduler, STADS::StadsMapFeedback};
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 use pub_sec_mutations::pub_sec_mutations;
@@ -137,11 +138,14 @@ pub fn main() {
     let output_observer = OutputObserver::new("output".to_string());
     let output_feedback = OutputFeedback::new(&output_observer);
 
+    // New maximization map feedback linked to the edges observer and the feedback state
+    let inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);
+    let map_feedback = StadsMapFeedback::new(inner_map);
+
     // Feedback to rate the interestingness of an input
     // This one is composed by two Feedbacks in OR
     let mut feedback = feedback_or!(
-        // New maximization map feedback linked to the edges observer and the feedback state
-        MaxMapFeedback::tracking(&edges_observer, true, false),
+        map_feedback,
         // Time feedback, this one does not need a feedback state
         TimeFeedback::with_observer(&time_observer)
     );

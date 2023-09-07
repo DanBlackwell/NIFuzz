@@ -4,7 +4,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
 use libafl::{
     observers::ObserversTuple,
-    prelude::{Input, HasCorpus}
+    prelude::{Input, HasCorpus}, ErrorBacktrace
 };
 use crate::output_leak_fuzzer::{IOHashValue, OutputData};
 use crate::pub_sec_input::PubSecInput;
@@ -57,6 +57,14 @@ where
 
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
+}
+pub struct STADSstatistics {
+    expected_finds: usize,
+    correctness: f64
+}
+
+pub trait STADSfeedback {
+    fn stads_uniform_secrets_leakage(&self) -> STADSstatistics;
 }
 
 impl<I> HypertestFeedback<I> for InfoLeakChecker<I>
@@ -448,6 +456,76 @@ where
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
         println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
 
+        let stats = self.stads_uniform_secrets_leakage();
+        println!("violation STADS: {{ expected_finds: {}, correctness: {} }}", stats.expected_finds, stats.correctness);
+
         leaked_info_bits
+    }
+}
+
+impl<I> STADSfeedback for InfoLeakChecker<I> {
+    fn stads_uniform_secrets_leakage(&self) -> STADSstatistics {
+        let mut singletons = 0; 
+        let mut doubletons = 0;
+        let mut total_samples = 0;
+
+        for pub_in in &self.violation_pub_ins {
+            if let Ok(info) = self.get_sample_info_for_pub_in(*pub_in) {
+                singletons += info.singletons;
+                doubletons += info.doubletons;
+                total_samples += info.sample_count;
+            }
+        }
+
+        let expected_finds = self.violation_pub_ins.len() +
+            if doubletons > 0 {
+                (singletons * singletons) / (2 * doubletons)
+            } else {
+                singletons * (singletons - 1) / 2
+            };
+
+        let correctness = singletons as f64 / total_samples as f64;
+
+        STADSstatistics { expected_finds, correctness }
+    }
+}
+
+struct SamplesInfo {
+    singletons: usize,
+    doubletons: usize,
+    sample_count: usize
+}
+
+impl<I> InfoLeakChecker<I> {
+    fn get_sample_info_for_pub_in(&self, pub_in: u64) -> Result<SamplesInfo, libafl::Error> {
+        let mut singletons = 0;
+        let mut doubletons = 0;
+
+        let hash_val = self.dict.get(&pub_in)
+            .ok_or(libafl::Error::KeyNotFound(pub_in.to_string(), ErrorBacktrace::new()))?;
+
+        let mut sample_count = 0;
+        for (_pub_out, sec_ins) in &hash_val.uniform_pub_outs_to_sec_ins {
+            match sec_ins.len() {
+                1 => singletons += 1,
+                2 => doubletons += 1,
+                _ => ()
+            };
+            sample_count += sec_ins.len();
+        }
+
+        if hash_val.uniform_pub_outs_to_sec_ins.len() > 0 {
+            let expected_finds = self.violation_pub_ins.len() +
+                if doubletons > 0 {
+                    (singletons * singletons) / (2 * doubletons)
+                } else {
+                    singletons * (singletons - 1) / 2
+                };
+
+            let correctness = singletons as f64 / sample_count as f64;
+            println!("violation: {pub_in}, actual_finds: {}, expected: {expected_finds}, correctness: {correctness}", hash_val.uniform_pub_outs_to_sec_ins.len());
+        }
+
+        Ok(SamplesInfo { singletons, doubletons, sample_count })
     }
 }
