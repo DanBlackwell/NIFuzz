@@ -51,7 +51,7 @@ where
             _ => panic!("Should have current mutate target set to secret")
         };
 
-        let sample = state.rand_mut().next();
+        let sample = state.rand_mut().next() as u32;
         input.set_secret_part_bytes(&sample.to_ne_bytes());
         Ok(MutationResult::Mutated)
     }

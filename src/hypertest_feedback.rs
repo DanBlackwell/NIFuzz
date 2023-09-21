@@ -30,8 +30,8 @@ impl<I> InfoLeakChecker<I> {
 }
 
 pub struct FailingHypertest<'a, I> {
-    test_one: (I, &'a OutputData),
-    test_two: (I, &'a OutputData),
+    pub test_one: (I, &'a OutputData),
+    pub test_two: (I, &'a OutputData),
 }
 
 pub trait HypertestFeedback<I>
@@ -89,6 +89,7 @@ where
         let empty = Vec::new();
         let stdout = match observer.stdout() { None => &empty, Some(o) => o };
         let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+        // println!("stdout: {:?}", String::from_utf8_lossy(stdout));
 
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
@@ -380,6 +381,8 @@ where
             hasher.finish()
         };
 
+        // println!("Output: {:?}", String::from_utf8_lossy(stdout));
+
         let pub_in_hash = hash(input.get_public_part_bytes());
         let sec_in_hash = hash(input.get_secret_part_bytes());
 
@@ -391,6 +394,7 @@ where
         let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
         if let Some(existing) = hash_val.uniform_pub_outs_to_sec_ins.get_mut(&pub_out_hash) {
             existing.push(sec_in_hash);
+            // println!("tested: (pub in len: {}) {:?}, got {:?} out", input.get_public_part_bytes().len(), input.get_secret_part_bytes(), String::from_utf8_lossy(stdout));
         } else {
             hash_val.uniform_pub_outs_to_sec_ins.insert(pub_out_hash, vec![sec_in_hash]);
         }

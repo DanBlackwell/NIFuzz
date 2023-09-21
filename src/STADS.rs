@@ -64,6 +64,7 @@ where
             if *res.as_ref().unwrap() {
                 self.path_hash_frequencies.insert(hash, 1);
             } else {
+                // println!("map size: {}, num set bytes: {:?}", observer.len(), observer.count_bytes());
                 if let Some(count) = self.path_hash_frequencies.get_mut(&hash) {
                     *count += 1;
                 }

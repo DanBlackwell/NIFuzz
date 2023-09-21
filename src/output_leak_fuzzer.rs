@@ -28,7 +28,7 @@ use libafl::{
     start_timer,
     state::{HasClientPerfMonitor, HasCorpus, HasExecutions, HasMetadata, HasSolutions, UsesState, HasRand},
     fuzzer::{HasScheduler, HasFeedback, HasObjective, ExecutionProcessor, EvaluatorObservers, Evaluator, Fuzzer, ExecuteInputResult, ExecutesInput},
-    Error, prelude::{Input, HasBytesVec, Rand},
+    Error, prelude::{Input, HasBytesVec, Rand, HasTargetBytes},
 };
 
 /// Send a monitor update all 15 (or more) seconds
@@ -332,7 +332,7 @@ where
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions + HasViolations,
-    <<CS as UsesState>::State as UsesInput>::Input: Input,
+    <<CS as UsesState>::State as UsesInput>::Input: Input + HasTargetBytes + PubSecInput,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events
@@ -365,7 +365,7 @@ where
         if needs_rerun {
             let output_data = output_data.unwrap();
             let mut inconsistent = false;
-            for i in 0..100 {
+            for i in 0..10 {
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
 
                 if cur_exit != exit_kind {
@@ -393,6 +393,12 @@ where
                 match failing_hypertest {
                     Some((_failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
+                            println!("Found new violation!");
+                            assert!(_failing_hypertest.test_one.0.get_public_part_bytes() == _failing_hypertest.test_two.0.get_public_part_bytes());
+                            println!("  test 1 in : {:?}", _failing_hypertest.test_one.0.get_raw_bytes());
+                            println!("  test 1 out: {:?}", String::from_utf8_lossy(&_failing_hypertest.test_one.1.stdout));
+                            println!("  test 2 in : {:?}", _failing_hypertest.test_two.0.get_raw_bytes());
+                            println!("  test 2 out: {:?}", String::from_utf8_lossy(&_failing_hypertest.test_two.1.stdout));
                             state.violations_mut().add(Testcase::new(input.clone())).unwrap();
                         }
                     },
@@ -414,7 +420,7 @@ where
     OF: Feedback<CS::State>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     CS::State: HasCorpus + HasSolutions + HasClientPerfMonitor + HasExecutions + HasViolations,
-    <<CS as UsesState>::State as UsesInput>::Input: Input,
+    <<CS as UsesState>::State as UsesInput>::Input: Input + HasTargetBytes + PubSecInput,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,
 {
     /// Process one input, adding to the respective corpora if needed and firing the right events

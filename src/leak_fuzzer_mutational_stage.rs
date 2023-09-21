@@ -7,7 +7,7 @@ use libafl::{
     bolts::rands::Rand,
     corpus::{Corpus, CorpusId, Testcase},
     fuzzer::Evaluator,
-    inputs::Input,
+    inputs::HasTargetBytes,
     mark_feature_time,
     mutators::{MutationResult, Mutator},
     prelude::{mutational::{DEFAULT_MUTATIONAL_MAX_ITERATIONS, MutatedTransform}, UsesInput},
@@ -89,6 +89,7 @@ where
                 
                 // Time is measured directly the `evaluate_input` function
                 let (untransformed, post) = input.try_transform_into(state)?;
+
                 let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
    
                 start_timer!(state);
@@ -126,10 +127,14 @@ where
             } else {
                 input.clone()
             };
+
+            // let (pub_before, sec_before) = (input.get_public_part_bytes().len(), input.get_secret_part_bytes().len());
    
             start_timer!(state);
             let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
             mark_feature_time!(state, PerfFeature::Mutate);
+
+            // println!("mutated from pub: {pub_before}, sec: {sec_before}. to pub: {}, sec: {}", input.get_public_part_bytes().len(), input.get_secret_part_bytes().len());
    
             if mutated == MutationResult::Skipped {
                 continue;

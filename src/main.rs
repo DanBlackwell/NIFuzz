@@ -202,6 +202,7 @@ pub fn main() {
     let mut forkserver = ForkserverExecutorWithOutput::builder()
         .program(opt.executable)
         .debug_child(true)
+        // .is_persistent(false)
         .shmem_provider(&mut shmem_provider)
         .autotokens(&mut tokens)
         .parse_afl_cmdline(args)

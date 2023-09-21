@@ -40,7 +40,7 @@ pub struct PubSecBytesInput {
     current_mutate_target: CurrentMutateTarget
 }
 
-pub trait PubSecInput { // : HasBytesVec {
+pub trait PubSecInput: HasTargetBytes { // : HasBytesVec {
     fn from_pub_sec_bytes(public: &[u8], secret: &[u8]) -> Self;
 
     fn get_public_part_bytes(&self) -> &[u8];
@@ -61,6 +61,7 @@ pub trait PubSecInput { // : HasBytesVec {
     fn swap_bytes_in_ranges(&mut self, range_1: Range<usize>, range_2: Range<usize>);
 
     fn get_total_len(&self) -> usize;
+    fn get_raw_bytes(&self) -> &[u8];
 }
 
 impl PubSecInput for PubSecBytesInput {
@@ -82,10 +83,15 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn set_secret_part_bytes(&mut self, new_buf: &[u8]) {
+        assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
         let len_indicator = std::mem::size_of::<u32>();
         let start = len_indicator + self.public_len;
         self.raw_bytes.drain(start..);
         self.raw_bytes.append(&mut new_buf.to_owned());
+        self.secret_len = new_buf.len();
+        assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn get_current_mutate_target(&self) -> CurrentMutateTarget {
@@ -304,6 +310,10 @@ impl PubSecInput for PubSecBytesInput {
 
     fn get_total_len(&self) -> usize {
         self.raw_bytes.len() - std::mem::size_of::<u32>()
+    }
+
+    fn get_raw_bytes(&self) -> &[u8] {
+        &self.raw_bytes
     }
 }
 

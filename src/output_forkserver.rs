@@ -261,7 +261,8 @@ impl ForkserverWithOutput {
     #[cfg(unix)]
     pub fn fetch_stdout(&mut self) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.nonblocking_stdout.read_available(&mut buf).unwrap();
+        let len = self.nonblocking_stdout.read_available(&mut buf).unwrap();
+        if len == 0 { if self.nonblocking_stdout.is_eof() { panic!();} }
         buf
     }
 
@@ -269,7 +270,8 @@ impl ForkserverWithOutput {
     #[cfg(unix)]
     pub fn fetch_stderr(&mut self) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.nonblocking_stderr.read_available(&mut buf).unwrap();
+        let len = self.nonblocking_stderr.read_available(&mut buf).unwrap();
+        if len == 0 { if self.nonblocking_stderr.is_eof() { panic!();} }
         buf
     }
 }
@@ -329,6 +331,7 @@ where
             shmem.as_mut_slice()[..4].copy_from_slice(&size_in_bytes[..4]);
             shmem.as_mut_slice()[SHMEM_FUZZ_HDR_SIZE..(SHMEM_FUZZ_HDR_SIZE + size)]
                 .copy_from_slice(target_bytes.as_slice());
+            // println!("wrote to shmem: {:?}", &shmem.as_slice()[..SHMEM_FUZZ_HDR_SIZE + size]);
         } else {
             self.executor
                 .input_file_mut()
@@ -387,7 +390,7 @@ where
                     self.observers_mut().observe_stdout(&stdout);
                     let stderr = self.executor.forkserver_mut().fetch_stderr();
                     self.observers_mut().observe_stderr(&stderr);
-                    // println!("stdout: {:?}, stderr: {:?}", std::str::from_utf8(&stdout), stderr);
+                    // println!("stdout: {}, stderr: {}", String::from_utf8_lossy(&stdout), String::from_utf8_lossy(&stderr));
                 }
             }
         } else {
