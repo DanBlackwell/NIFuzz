@@ -43,6 +43,8 @@ int copy_to_user(void *user_dest, void *kernel_buf, size_t size)
 		printf("%hhx", ((char *)kernel_buf)[i]);
 	}
 	printf("\n");
+
+	return 0;
 }
 
 // uss: user signal-stack
@@ -114,3 +116,85 @@ out:
 	return error;
 }
 
+
+///////////////////////////////////////////////////////////////////////////////
+// FUZZ HARNESS
+///////////////////////////////////////////////////////////////////////////////
+
+#include "memory.h"
+#include <stdlib.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <string.h>
+
+__AFL_FUZZ_INIT();
+
+int main(int argc, char **argv) 
+{
+	__AFL_INIT();
+	
+	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+
+	// char *Data; uint32_t Size;
+	uint32_t public_len = *(unsigned int *)Data;
+	uint32_t secret_len = Size - public_len - sizeof(public_len);
+	const uint8_t *public_in = Data + sizeof(public_len);
+	const uint8_t *secret_in = public_in + public_len;
+
+    // handle SECRET
+
+    uint32_t seed = 0;
+	for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
+		seed |= secret_in[i] << 8 * i;
+	}
+
+	SEED_MEMORY(seed);
+	fill_stack();
+
+    // handle PUBLIC
+
+	stack_t uss = {0};
+	if (public_len < sizeof(uss.ss_flags)) {
+		return 1;
+	}
+
+	int pos = 0;
+	uss.ss_flags = *(int *)public_in;
+	pos += sizeof(uss.ss_flags);
+	uss.ss_size = public_len - pos;
+	// just be safe and make a copy of public_in in case we overwrite the shared mem somehow
+	uint8_t *stack = malloc(public_len - pos);
+	memcpy(stack, public_in + pos, public_len - pos);
+	uss.ss_sp = stack;
+
+    // execute the function
+
+	do_sigaltstack(&uss, &(stack_t){0}, 0);
+
+    return 0;
+}
+
+
+// #include "base64.h"
+
+// int main() {
+//     stack_t uss = {0};
+// 	uss.ss_flags = 0;
+
+// 	long stack = 0x1234567890abcdef;
+
+// 	char buf[sizeof(uss.ss_flags) + sizeof(stack)];
+// 	memcpy(buf, &uss.ss_flags, sizeof(uss.ss_flags));
+// 	memcpy(buf + sizeof(uss.ss_flags), &stack, sizeof(stack));
+
+// 	int enc_len = Base64encode_len(sizeof(buf));
+// 	char *encoded = malloc(enc_len);
+// 	int res = Base64encode(encoded, buf, sizeof(buf));
+//         printf("{\n  \"PUBLIC\": \"");
+// 	for (int i = 0; i < res; i++) {
+// 		printf("%c", encoded[i]);
+// 	}
+//         printf("\",\n  \"SECRET\": \"MDAwMA==\"\n}\n");
+// 	printf("\npredicted len: %d, actual: %d\n", enc_len, res);
+// }

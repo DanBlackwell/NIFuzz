@@ -1375,20 +1375,21 @@ nla_put_failure:
 	return -1;
 }
 
-//#include "memory.h"
+#include "memory.h"
 #include <stdint.h>
+#include <unistd.h>
 
-//__AFL_FUZZ_INIT();
+__AFL_FUZZ_INIT();
 
 int main(int argc, char **argv) 
 {
-//	__AFL_INIT();
-//	
-//	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-//	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
-//	
-//
-	char *Data; uint32_t Size;
+	__AFL_INIT();
+	
+	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+	
+
+	// char *Data; uint32_t Size;
 	uint32_t public_len = *(unsigned int *)Data;
 	uint32_t secret_len = Size - public_len - sizeof(public_len);
 	const uint8_t *public_in = Data + sizeof(public_len);
@@ -1414,5 +1415,41 @@ int main(int argc, char **argv)
 	SEED_MEMORY(seed);
 	fill_stack();
 
-	tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
+	int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
+        if (res < 0) return 1;
+
+        for (int i = 0; i < skb.len; i++) {
+                printf("%hhx", skb.data[i]);
+        }
+        printf("\n");
+
+        return 0;
 }
+
+// #include "base64.h"
+
+// int main() {
+//         unsigned long fh = 0;
+// 	u32 pid = 0, seq = 0;
+// 	u16 flags = 0;
+// 	int event = 0;
+
+// 	char buf[sizeof(fh) + sizeof(pid) + sizeof(seq) + sizeof(flags) + sizeof(event)];
+// 	memcpy(buf, &fh, sizeof(fh));
+//         int pos = sizeof(fh);
+// #define ENCODE(var) memcpy(buf + pos, &var, sizeof(var)); pos += sizeof(var);
+//         ENCODE(pid);
+//         ENCODE(seq);
+//         ENCODE(flags);
+//         ENCODE(event);
+
+// 	int enc_len = Base64encode_len(sizeof(buf));
+// 	char *encoded = malloc(enc_len);
+// 	int res = Base64encode(encoded, buf, sizeof(buf));
+//         printf("{\n  \"PUBLIC\": \"");
+// 	for (int i = 0; i < res; i++) {
+// 		printf("%c", encoded[i]);
+// 	}
+//         printf("\",\n  \"SECRET\": \"MDAwMA==\"\n}\n");
+// 	printf("\npredicted len: %d, actual: %d\n", enc_len, res);
+// }
