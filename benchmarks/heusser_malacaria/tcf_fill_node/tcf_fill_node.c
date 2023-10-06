@@ -1350,6 +1350,8 @@ static int tcf_fill_node(struct sk_buff *skb, struct tcf_proto *tp,
 	struct nlmsghdr  *nlh;
 	unsigned char *b = skb_tail_pointer(skb);
 
+        #define MARK(num) printf("got here %d\n", num);
+
 	nlh = NLMSG_NEW(skb, pid, seq, event, sizeof(*tcm), flags);
 	tcm = NLMSG_DATA(nlh);
 	tcm->tcm_family = AF_UNSPEC;
@@ -1400,19 +1402,46 @@ int main(int argc, char **argv)
 		seed |= secret_in[i] << 8 * i;
 	}
 
-	struct sk_buff skb = {0};
-	struct tcf_proto tp = {0};
-	struct tcf_proto_ops ops = {0};
-	ops.dump = basic_dump;
-	tp.ops = &ops;
-
-	unsigned long fh = 0;
-	u32 pid = 0, seq = 0;
-	u16 flags = 0;
-	int event = 0;
-
-	
 	SEED_MEMORY(seed);
+
+	struct sk_buff skb = {0};
+        skb.data = malloc(1024 * 1024);
+        skb.head = skb.data;
+        skb.end = 1024 * 1024;
+        skb.tail = 0;
+        skb.data_len = 0; // only for nonlinear
+        skb.len = 0;
+
+        struct net_device nd = { .ifindex = 0 };
+        struct netdev_queue nd_q = { .dev = &nd };
+        struct Qdisc qdisc = { .dev_queue = &nd_q };
+	struct tcf_proto_ops ops = { .dump = basic_dump };
+	struct tcf_proto tp = { .ops = &ops, .q = &qdisc };
+
+        int pos = 0;
+
+#define DEFINE_AND_DECODE(type, var) type var = *(type *)public_in + pos; pos += sizeof(type); if (pos > public_len) return 1;
+        DEFINE_AND_DECODE(unsigned long, fh);
+        DEFINE_AND_DECODE(u32, pid);
+        DEFINE_AND_DECODE(u32, seq);
+        DEFINE_AND_DECODE(u16, flags);
+        DEFINE_AND_DECODE(int, event);
+
+        DEFINE_AND_DECODE(int, ifindex);
+        nd.ifindex = ifindex;
+
+        if (public_len - pos > 16) {
+                memcpy(ops.kind, public_in + pos, 15);
+                ops.kind[15] = 0;
+        } else {
+                memcpy(ops.kind, public_in + pos, public_len - pos);
+                ops.kind[public_len - pos] = 0;
+        }
+
+        // printf("seeded: %u, initial: ", seed);
+        // for (int i = 0; i < 20; i++) printf("%hhX", skb.data[i]);
+        // printf("\n");
+
 	fill_stack();
 
 	int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
@@ -1422,6 +1451,8 @@ int main(int argc, char **argv)
                 printf("%hhx", skb.data[i]);
         }
         printf("\n");
+
+        free(skb.data);
 
         return 0;
 }

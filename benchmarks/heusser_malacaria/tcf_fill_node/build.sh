@@ -1,6 +1,10 @@
 #!/bin/bash
 
-CFLAGS="-Wl,--wrap=malloc"
+pushd ../../../
+  cargo build --release
+popd
+
+CFLAGS="-Wl,--wrap=malloc -Wl,--wrap=free"
 
 gcc -O3 -c ../memory.c -o m.o
 

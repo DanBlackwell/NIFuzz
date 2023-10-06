@@ -1,14 +1,15 @@
 #ifndef MEMORY_INFO_LEAKAGE_H
 #define MEMORY_INFO_LEAKAGE_H
 
-#define SEED_MEMORY(seed) srand(seed);
+#define SEED_MEMORY(seed) { srand(seed); initRepeatedVal(); }
 
+void initRepeatedVal(void);
 void *__wrap_malloc(size_t);
 void *get_stack_top(void);
 void *get_cur_stack_bottom(void);
 void *get_min_stack_bottom(void);
 
-void fill_stack(void);
+// void fill_stack(void);
 
 #define FILL_STACK() { \
   uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom(); \

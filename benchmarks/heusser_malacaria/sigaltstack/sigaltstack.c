@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
@@ -13,6 +14,7 @@
 
 typedef struct task_struct_t {
 	void *sas_ss_sp;
+	// char *sas_ss_sp;
 	size_t sas_ss_size;
 } task_struct;
 
@@ -27,8 +29,8 @@ typedef struct sigaltstack {
 
 static inline int on_sig_stack(unsigned long sp)
 {
-	return 1;
-	// return (sp - current->sas_ss_sp < current->sas_ss_size);
+	// return 1;
+	return (sp - (uintptr_t)current->sas_ss_sp < current->sas_ss_size);
 }
 
 static inline int sas_ss_flags(unsigned long sp)
@@ -150,7 +152,6 @@ int main(int argc, char **argv)
 	}
 
 	SEED_MEMORY(seed);
-	fill_stack();
 
     // handle PUBLIC
 
@@ -168,9 +169,16 @@ int main(int argc, char **argv)
 	memcpy(stack, public_in + pos, public_len - pos);
 	uss.ss_sp = stack;
 
+	stack_t uoss = {0};
+
+	current->sas_ss_sp = &uoss;
+	current->sas_ss_size = 1024;
+
+	FILL_STACK();
+
     // execute the function
 
-	do_sigaltstack(&uss, &(stack_t){0}, 0);
+	do_sigaltstack(&uss, &uoss, 0);
 
     return 0;
 }

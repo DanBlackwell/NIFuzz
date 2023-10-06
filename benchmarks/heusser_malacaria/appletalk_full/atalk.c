@@ -522,6 +522,7 @@ out:
  * Find the name of an AppleTalk socket. Just copy the right
  * fields into the sockaddr.
  */
+__attribute_noinline__
 static int atalk_getname(struct socket *sock, struct sockaddr *uaddr,
 			 int *uaddr_len, int peer)
 {
@@ -571,6 +572,7 @@ int main(int argc, char **argv)
 	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
 	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
 
+	// unsigned char *Data; int Size;
 	uint32_t public_len = *(unsigned int *)Data;
 	uint32_t secret_len = Size - public_len - sizeof(public_len);
 	const uint8_t *public_in = Data + sizeof(public_len);
@@ -597,11 +599,20 @@ int main(int argc, char **argv)
 	}
 
 	SEED_MEMORY(seed);
-	fill_stack();
+	FILL_STACK();
+
+	// printf("stack: ");
+	// for (int i = 0; i < 300; i++) printf("%hhX", *(((char *)&seed) - i));
+	// printf(". ");
 
     // execute the function
 
-	atalk_getname(&sock, &uaddr, &uaddr_len, peer);
+	if (atalk_getname(&sock, &uaddr, &uaddr_len, peer) >= 0) {
+		for (int i = 0; i < uaddr_len; i++) {
+			printf("%02hhX", ((char *)&uaddr)[i]);
+		}
+		printf("\n");
+	}
 
     return 0;
 }

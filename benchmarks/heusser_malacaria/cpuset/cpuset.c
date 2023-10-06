@@ -126,7 +126,7 @@ int main(int argc, char **argv)
 	}
 
 	SEED_MEMORY(seed);
-	fill_stack();
+	FILL_STACK();
 
         // handle PUBLIC
 

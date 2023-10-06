@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CFLAGS="-Wl,--wrap=malloc"
+CFLAGS="-Wl,--wrap=malloc -Wl,--wrap=free"
 
 gcc -O3 -c ../memory.c -o m.o
 

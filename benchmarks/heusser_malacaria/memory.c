@@ -6,6 +6,7 @@
 
 extern void *malloc(size_t);
 extern void *__real_malloc(size_t);
+extern void __real_free(void *);
 
 uint64_t repeatedVal = 0;
 
@@ -14,22 +15,23 @@ void initRepeatedVal() {
 }
 
 void *__wrap_malloc(size_t bytes) {
-  uint64_t *raw = (uint64_t *)__real_malloc(bytes);
+  size_t adjusted_bytes = bytes + 32; // Add some extra bytes padding
+  uint64_t *raw = (uint64_t *)__real_malloc(adjusted_bytes);
 
-  if (!repeatedVal)
-    initRepeatedVal();
-
-  uint64_t reps = bytes / sizeof(repeatedVal);
+  uint64_t reps = adjusted_bytes / sizeof(repeatedVal);
   for (size_t i = 0; i < reps; i++) {
     raw[i] = repeatedVal;
   }
-  for (size_t i = 0; i < bytes % sizeof(repeatedVal); i++) {
+  for (size_t i = 0; i < adjusted_bytes % sizeof(repeatedVal); i++) {
     ((uint8_t *)(raw + reps))[i] = repeatedVal >> (8 * i) & 0xFF;
   }
 
-  return (void *)raw;
+  return (void *)(raw + 2);
 }
 
+void __wrap_free(void *ptr) {
+  __real_free(((uint64_t *)ptr) - 2);
+}
 
 void *get_stack_top() {
 
