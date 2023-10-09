@@ -7,46 +7,35 @@ use libafl::{
         current_nanos,
         rands::StdRand,
         shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-        tuples::{tuple_list, MatchName, Merge},
+        tuples::{tuple_list, MatchName},
         AsMutSlice, Truncate,
     },
     corpus::{Corpus, InMemoryCorpus, OnDiskCorpus},
     events::SimpleEventManager,
-    executors::{
-        forkserver::ForkserverExecutor,
-        HasObservers,
-    },
+    executors::HasObservers,
     feedback_and_fast, feedback_or,
     feedbacks::{CrashFeedback, MaxMapFeedback, TimeFeedback},
-    fuzzer::{Fuzzer, StdFuzzer},
-    inputs::BytesInput,
+    fuzzer::Fuzzer,
     monitors::SimpleMonitor,
-    mutators::{scheduled::havoc_mutations, tokens_mutations, StdScheduledMutator, Tokens},
+    mutators::{StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
-    prelude::{
-        BitFlipMutator, ByteFlipMutator, ByteIncMutator, ByteDecMutator, 
-        ByteNegMutator, ByteRandMutator, ByteAddMutator, WordAddMutator, 
-        DwordAddMutator, QwordAddMutator, ByteInterestingMutator, WordInterestingMutator, 
-        DwordInterestingMutator
-    },
-    schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler, MinimizerScheduler, LenTimeMulTestcaseScore},
-    stages::mutational::StdMutationalStage,
-    state::{HasCorpus, HasMetadata, StdState}, prelude::{RomuDuoJrRand, MapIndexesMetadata, CombinedFeedback, MapFeedback, DifferentIsNovel, MaxReducer, LogicEagerOr, LogicFastAnd},
+    state::{HasCorpus, HasMetadata}, 
 };
 use nix::sys::signal::Signal;
 
-mod output_observer;
-mod output_feedback;
-mod output_forkserver;
-mod output_leak_fuzzer;
-mod pub_sec_input;
-mod pub_sec_mutations;
-mod hypertest_feedback;
-mod leak_fuzzer_state;
-mod leak_fuzzer_scheduler;
-mod leak_fuzzer_mutational_stage;
-mod STADS;
-use output_feedback::{OutputFeedback, OutputFeedbackMetadata};
+pub mod output_observer;
+pub mod output_feedback;
+pub mod output_forkserver;
+pub mod output_leak_fuzzer;
+pub mod pub_sec_input;
+pub mod pub_sec_mutations;
+pub mod hypertest_feedback;
+pub mod leak_fuzzer_state;
+pub mod leak_fuzzer_scheduler;
+pub mod leak_fuzzer_mutational_stage;
+#[allow(non_snake_case)]
+pub mod STADS;
+// use output_feedback::OutputFeedback;
 use output_forkserver::TimeoutForkserverExecutorWithOutput;
 use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState, leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, leak_fuzzer_scheduler::RandLeakScheduler, STADS::StadsMapFeedback};
 use output_leak_fuzzer::LeakFuzzer;
@@ -136,7 +125,7 @@ pub fn main() {
     let time_observer = TimeObserver::new("time");
 
     let output_observer = OutputObserver::new("output".to_string());
-    let output_feedback = OutputFeedback::new(&output_observer);
+    // let output_feedback = OutputFeedback::new(&output_observer);
 
     // New maximization map feedback linked to the edges observer and the feedback state
     let inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate alloc;
 use alloc::{borrow::ToOwned, string::ToString, vec::Vec};
 use core::{
@@ -10,10 +12,7 @@ use nonblock::NonBlockingReader;
 use std::{
     ffi::{OsStr, OsString},
     io::{self, prelude::*, ErrorKind},
-    os::{
-        fd::{AsFd, BorrowedFd},
-        unix::{io::RawFd, process::CommandExt},
-    },
+    os::unix::io::RawFd,
     path::Path,
     process::{ChildStderr, ChildStdout, Command, Stdio},
 };
@@ -32,13 +31,13 @@ use crate::observers::{get_asan_runtime_flags_with_log_path, AsanBacktraceObserv
 use libafl::{
     bolts::{
         fs::{get_unique_std_input_file, InputFile},
-        os::{dup2, pipes::Pipe},
+        os::pipes::Pipe,
         shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-        tuples::{MatchName, Prepend},
+        tuples::Prepend,
         AsMutSlice, AsSlice, Truncate,
     },
     executors::{
-        forkserver::{ConfigTarget, HasForkserver},
+        forkserver::ConfigTarget,
         Executor, ExitKind, HasObservers,
     },
     inputs::{HasTargetBytes, Input, UsesInput},
@@ -459,7 +458,9 @@ where
     map: Option<SP::ShMem>,
     phantom: PhantomData<S>,
     /// Cache that indicates if we have a `ASan` observer registered.
+    #[allow(dead_code)]
     has_asan_observer: Option<bool>,
+    #[allow(dead_code)]
     map_size: Option<usize>,
 }
 

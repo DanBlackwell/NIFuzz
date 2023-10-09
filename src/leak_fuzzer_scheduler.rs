@@ -6,9 +6,8 @@ use core::marker::PhantomData;
 
 use libafl::{
     bolts::rands::Rand,
-    corpus::{Corpus, CorpusId, HasTestcase, Testcase},
+    corpus::{Corpus, CorpusId, HasTestcase},
     inputs::UsesInput,
-    observers::ObserversTuple,
     random_corpus_id,
     state::{HasCorpus, HasRand, UsesState},
     prelude::{Scheduler},

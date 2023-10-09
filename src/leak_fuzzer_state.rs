@@ -13,16 +13,16 @@ use std::{
     vec::Vec,
 };
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use libafl::bolts::rands::StdRand;
 use libafl::{
     bolts::{
         rands::Rand,
-        serdeany::{NamedSerdeAnyMap, SerdeAny, SerdeAnyMap},
+        serdeany::{NamedSerdeAnyMap, SerdeAnyMap},
     },
-    corpus::{Corpus, CorpusId, HasTestcase, Testcase, InMemoryCorpus},
+    corpus::{Corpus, CorpusId, HasTestcase, Testcase},
     events::{Event, EventFirer, LogSeverity},
     feedbacks::Feedback,
     fuzzer::{Evaluator, ExecuteInputResult},
@@ -31,7 +31,7 @@ use libafl::{
     monitors::ClientPerfMonitor,
     state::{State, UsesState, HasCorpus, HasMaxSize, HasSolutions, HasRand, HasClientPerfMonitor, HasMetadata, HasNamedMetadata, HasExecutions, HasStartTime},
     Error,
-    prelude::{DEFAULT_MAX_SIZE},
+    prelude::DEFAULT_MAX_SIZE,
 };
 
 // // blanket impl which automatically defines UsesInput for anything that implements UsesState

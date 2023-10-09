@@ -1,10 +1,8 @@
 //! The `Fuzzer` is the main struct for a fuzz campaign.
 
 extern crate alloc;
-use alloc::string::ToString;
 use hashbrown::HashMap;
-use core::{fmt::Debug, marker::PhantomData, time::Duration};
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, borrow::BorrowMut};
+use core::{fmt::Debug, marker::PhantomData};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -22,17 +20,17 @@ use libafl::{
     feedbacks::Feedback,
     inputs::UsesInput,
     mark_feature_time,
-    observers::{Observer, ObserversTuple},
+    observers::ObserversTuple,
     schedulers::Scheduler,
     stages::StagesTuple,
     start_timer,
     state::{HasClientPerfMonitor, HasCorpus, HasExecutions, HasMetadata, HasSolutions, UsesState, HasRand},
     fuzzer::{HasScheduler, HasFeedback, HasObjective, ExecutionProcessor, EvaluatorObservers, Evaluator, Fuzzer, ExecuteInputResult, ExecutesInput},
-    Error, prelude::{Input, HasBytesVec, Rand, HasTargetBytes},
+    Error, prelude::{Input, Rand, HasTargetBytes},
 };
 
 /// Send a monitor update all 15 (or more) seconds
-const STATS_TIMEOUT_DEFAULT: Duration = Duration::from_secs(15);
+// const STATS_TIMEOUT_DEFAULT: Duration = Duration::from_secs(15);
 
 /// The corpus this input should be added to
 #[derive(Debug, PartialEq, Eq)]
@@ -93,7 +91,7 @@ pub struct IOHashValue {
 }
 
 impl IOHashValue {
-    fn info_string(&self) -> String {
+    pub fn info_string(&self) -> String {
         format!("[pub_in: {:20}, (sec_in, pub_out)s: {:?}]", 
             self.public_input_hash, 
             self.secret_input_hashes.iter().zip(self.public_output_hashes.iter())
@@ -101,7 +99,7 @@ impl IOHashValue {
         )
     }
 
-    fn extended_info_string(&self) -> String {
+    pub fn extended_info_string(&self) -> String {
         if self.public_input_full.is_none() { return self.info_string(); }
 
         format!("[pub_in: {:20}, (sec_in, pub_out)s: {:?}]", 
@@ -369,9 +367,9 @@ where
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
 
                 if cur_exit != exit_kind {
-                    inconsistent = true;
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
-                    break;
+                    // inconsistent = true;
+                    // break;
                 }
 
                 let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{
     Map,
     Value,
-    Value::{Object}
+    Value::Object
 };
 use base64::{Engine, engine::general_purpose};
 
@@ -22,7 +22,7 @@ use base64::{Engine, engine::general_purpose};
 use libafl::{bolts::fs::write_file_atomic, Error};
 use libafl::{
     bolts::{ownedref::OwnedSlice, HasLen},
-    inputs::{BytesInput, HasBytesVec, HasTargetBytes, Input},
+    inputs::{BytesInput, HasTargetBytes, Input},
 };
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]

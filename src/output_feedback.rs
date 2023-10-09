@@ -1,22 +1,15 @@
 //! The ``OutputFeedback`` uses the program output
 
 use core::fmt;
-use std::{fmt::Debug, marker::PhantomData, cmp::{min, max}, io::{self, BufReader, Read, Error}, fs::File};
+use std::{fmt::Debug, marker::PhantomData, io::Error};
 
-use crate::{OutputObserver, output_observer::ObserverWithOutput};
+use crate::output_observer::ObserverWithOutput;
 
-use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 
 use libafl::{
-    prelude::{Rand, Observer, HasBytesVec, Input},
     bolts::tuples::Named,
-    events::EventFirer,
-    executors::ExitKind,
-    feedbacks::{Feedback, HasObserverName},
-    inputs::UsesInput,
-    observers::{ObserversTuple},
-    state::{HasClientPerfMonitor, HasNamedMetadata, HasRand},
+    feedbacks::HasObserverName,
 };
 
 /// The prefix of the metadata names

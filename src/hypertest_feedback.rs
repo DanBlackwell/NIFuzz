@@ -1,10 +1,9 @@
 use hashbrown::HashMap;
-use core::{fmt::Debug, marker::PhantomData, time::Duration};
-use serde::{Serialize, de::DeserializeOwned};
-use std::{hash::{Hash, Hasher, self}, collections::{hash_map::DefaultHasher, HashSet}};
+use core::marker::PhantomData;
+use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
 use libafl::{
-    observers::ObserversTuple,
-    prelude::{Input, HasCorpus}, ErrorBacktrace
+    prelude::Input, 
+    ErrorBacktrace
 };
 use crate::output_leak_fuzzer::{IOHashValue, OutputData};
 use crate::pub_sec_input::PubSecInput;
@@ -282,7 +281,7 @@ where
                     self.violation_pub_ins.push(pub_in_hash);
                 }
 
-                if let Some(members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
+                if let Some(_members) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
                     panic!("OOH, (pub_in: {}) had a map for {} in {:?} ({:?}), but not in public_output_hashes: {:?}, sec_in_hashes: {:?}", 
                         pub_in_hash,
                         pub_out_hash,
@@ -411,7 +410,7 @@ where
         let filtered = self.violation_pub_ins.iter()
             .map(|x| self.dict.get(x).unwrap())
             .filter(|x| x.hits >= MIN_HITS);
-        let (sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 10 { 1 } else { 0 }));
+        let (_sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 10 { 1 } else { 0 }));
         let pub_in_prob = 1.0f64 / (well_sampled_pubs as f64);
 
         let valid_count = self.violation_pub_ins.iter().fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});

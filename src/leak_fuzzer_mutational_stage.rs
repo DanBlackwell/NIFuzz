@@ -7,7 +7,6 @@ use libafl::{
     bolts::rands::Rand,
     corpus::{Corpus, CorpusId, Testcase},
     fuzzer::Evaluator,
-    inputs::HasTargetBytes,
     mark_feature_time,
     mutators::{MutationResult, Mutator},
     prelude::{mutational::{DEFAULT_MUTATIONAL_MAX_ITERATIONS, MutatedTransform}, UsesInput},

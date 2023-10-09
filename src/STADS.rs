@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use ahash::{HashMap, HashMapExt};
-use libafl::{prelude::{MapFeedback, UsesObserver, UsesInput, Observer, Feedback, IsNovel, MapObserver, AsIter, Reducer, MapFeedbackMetadata, ObserversTuple, Testcase, ExitKind, EventFirer, Named, DifferentIsNovel, MaxReducer, AsSlice, HasObserverName}, state::{HasClientPerfMonitor, HasNamedMetadata}, Error};
+use libafl::{prelude::{MapFeedback, UsesObserver, UsesInput, Observer, Feedback, IsNovel, MapObserver, AsIter, Reducer, ObserversTuple, Testcase, ExitKind, EventFirer, Named, HasObserverName}, state::{HasClientPerfMonitor, HasNamedMetadata}, Error};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 pub struct STADSstatistics {
@@ -115,6 +115,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 fn create_stats_name(name: &str) -> String {
     name.to_lowercase()
 }
@@ -141,6 +142,7 @@ where
     /// For tracking, enable `always_track` mode, that also adds `novelties` or `indexes`,
     /// even if the map is not novel for this feedback.
     /// This is useful in combination with `load_initial_inputs_forced`, or other feedbacks.
+    #[allow(dead_code)]
     pub fn set_always_track(&mut self, always_track: bool) {
         self.map_feedback.set_always_track(always_track)
     }
