@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
 use serde::{Serialize, de::DeserializeOwned};
-use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
+use std::{hash::{Hash, Hasher, self}, collections::{hash_map::DefaultHasher, HashSet}};
 use libafl::{
     observers::ObserversTuple,
     prelude::{Input, HasCorpus}, ErrorBacktrace
@@ -89,7 +89,9 @@ where
         let empty = Vec::new();
         let stdout = match observer.stdout() { None => &empty, Some(o) => o };
         let stderr = match observer.stderr() { None => &empty, Some(o) => o };
-        // println!("stdout: {:?}", String::from_utf8_lossy(stdout));
+        if stdout.len() > 0 {
+            // println!("stdout: {:?}", String::from_utf8_lossy(stdout));
+        }
 
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
@@ -403,6 +405,7 @@ where
     fn estimate_leakage(&self) -> f64 {
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
+        let mut most_output_distinctions = 0;
         const MIN_HITS: usize = 1_000;
 
         let filtered = self.violation_pub_ins.iter()
@@ -428,11 +431,15 @@ where
                 .values()
                 .fold(0, |acc, x| acc + x.len());
 
+            if hash_val.uniform_pub_outs_to_sec_ins.len() > most_output_distinctions {
+                most_output_distinctions = hash_val.uniform_pub_outs_to_sec_ins.len();
+            }
+
             let mut entropy = 0_f64;
-            print!("Probability of outputs: [");
-            for (pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
+            // print!("Probability of outputs: [");
+            for (_pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
                 let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
-                print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
+                // print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
                 entropy += prob * prob.log2();
             }
 
@@ -440,13 +447,13 @@ where
             let uniform_set = HashSet::from_iter(hash_val.uniform_pub_outs_to_sec_ins.keys());
             let diff = non_uniform_set.difference(&uniform_set);
 
-            for &&pub_out in diff {
+            for &&_pub_out in diff {
                 let prob = pub_in_prob * (1f64 / sample_count as f64);
-                print!("[non_uniform] {}: {} (raw {} / {}), ", pub_out, prob, 1, sample_count);
+                // print!("[non_uniform] {}: {} (raw {} / {}), ", pub_out, prob, 1, sample_count);
                 entropy += prob * prob.log2();
             }
 
-            println!("]");
+            // println!("]");
             output_violation_entropy_sum += entropy; 
 
             // if hash_val.secret_inputs_full.len() > 2 {
@@ -459,6 +466,7 @@ where
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
         println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
+        println!("Max distinctions on output: {most_output_distinctions} (channel capacity: {:.02} bits)", (most_output_distinctions as f64).log2());
 
         let stats = self.stads_uniform_secrets_leakage();
         println!("violation STADS: {{ expected_finds: {}, correctness: {} }}", stats.expected_finds, stats.correctness);

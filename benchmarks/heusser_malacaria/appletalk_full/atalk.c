@@ -535,7 +535,8 @@ static int atalk_getname(struct socket *sock, struct sockaddr *uaddr,
 			return -ENOBUFS;
 
 	*uaddr_len = sizeof(struct sockaddr_at);
-//	memset(&sat.sat_zero, 0, sizeof(sat.sat_zero)); // FIX!
+//	memset(&sat.sat_zero, 0, sizeof(sat.sat_zero)); // FIX 1: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=3d392475c873c10c10d6d96b94d092a34ebd4791
+//  memset(&sat, 0, sizeof(sat)); // ACTUAL FIX (seen in later kernel versions, as FIX 1 misses padding)
 
 	if (peer) {
 		if (sk->sk_state != TCP_ESTABLISHED)
@@ -608,8 +609,9 @@ int main(int argc, char **argv)
     // execute the function
 
 	if (atalk_getname(&sock, &uaddr, &uaddr_len, peer) >= 0) {
-		for (int i = 0; i < uaddr_len; i++) {
-			printf("%02hhX", ((char *)&uaddr)[i]);
+		printf("%hu", uaddr.sa_family);
+		for (int i = 0; i < sizeof(uaddr.sa_data); i++) {
+			printf("%hhX", uaddr.sa_data[i]);
 		}
 		printf("\n");
 	}
