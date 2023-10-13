@@ -1379,6 +1379,7 @@ nla_put_failure:
 
 #include "memory.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <unistd.h>
 
 __AFL_FUZZ_INIT();
@@ -1442,7 +1443,7 @@ int main(int argc, char **argv)
         // for (int i = 0; i < 20; i++) printf("%hhX", skb.data[i]);
         // printf("\n");
 
-	fill_stack();
+	FILL_STACK();
 
 	int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
         if (res < 0) return 1;

@@ -560,6 +560,7 @@ static int atalk_getname(struct socket *sock, struct sockaddr *uaddr,
 
 #include "memory.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>

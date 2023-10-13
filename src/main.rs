@@ -19,7 +19,7 @@ use libafl::{
     monitors::SimpleMonitor,
     mutators::{StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
-    state::{HasCorpus, HasMetadata}, 
+    state::{HasCorpus, HasMetadata}, prelude::CachedOnDiskCorpus, 
 };
 use nix::sys::signal::Signal;
 
@@ -154,7 +154,7 @@ pub fn main() {
         // RNG
         StdRand::with_seed(current_nanos()),
         // Corpus that will be evolved, we keep it in memory for performance
-        InMemoryCorpus::<PubSecBytesInput>::new(),
+        CachedOnDiskCorpus::<PubSecBytesInput>::new(PathBuf::from("./queue"), 1024 * 1024).unwrap(),
         // Corpus in which we store solutions (crashes in this example),
         // on disk so the user can get them after stopping the fuzzer
         OnDiskCorpus::new(PathBuf::from("./crashes")).unwrap(),

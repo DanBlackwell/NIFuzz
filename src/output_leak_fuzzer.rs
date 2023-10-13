@@ -389,14 +389,14 @@ where
             if !inconsistent {
                 let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data);
                 match failing_hypertest {
-                    Some((_failing_hypertest, is_new_violation)) => { 
+                    Some((failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
                             println!("Found new violation!");
-                            assert!(_failing_hypertest.test_one.0.get_public_part_bytes() == _failing_hypertest.test_two.0.get_public_part_bytes());
-                            println!("  test 1 in : {:?}", _failing_hypertest.test_one.0.get_raw_bytes());
-                            println!("  test 1 out: {:?}", String::from_utf8_lossy(&_failing_hypertest.test_one.1.stdout));
-                            println!("  test 2 in : {:?}", _failing_hypertest.test_two.0.get_raw_bytes());
-                            println!("  test 2 out: {:?}", String::from_utf8_lossy(&_failing_hypertest.test_two.1.stdout));
+                            assert!(failing_hypertest.test_one.0.get_public_part_bytes() == failing_hypertest.test_two.0.get_public_part_bytes());
+                            println!("  test 1 in : {:?}", failing_hypertest.test_one.0.get_raw_bytes());
+                            println!("  test 1 out: {:?}", failing_hypertest.test_one.1.to_string());
+                            println!("  test 2 in : {:?}", failing_hypertest.test_two.0.get_raw_bytes());
+                            println!("  test 2 out: {:?}", failing_hypertest.test_two.1.to_string());
                             state.violations_mut().add(Testcase::new(input.clone())).unwrap();
                         }
                     },
