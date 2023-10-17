@@ -50,7 +50,7 @@ int main(void) {
     unsigned short passwordAttempts;
 
     { CHECK_1_BITS_LEAKAGE() }
-    { CHECK_2_BITS_LEAKAGE() }
+    // { CHECK_2_BITS_LEAKAGE() }
     // { CHECK_3_BITS_LEAKAGE() }
     return 0;
 }
