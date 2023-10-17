@@ -7,4 +7,7 @@ pushd ../../../
 popd
 
 CC=$PWD/../../../target/release/libafl_cc
-$CC -O0 -Wall $CFLAGS password.c -I../../ -o fuzz
+$CC -O0 -Wall $CFLAGS fuzz_harness.c -I../../ -o fuzz
+
+CBMC=gcc
+$CBMC cbmc_harness.c -I../../CBMC_utils -o model_check
