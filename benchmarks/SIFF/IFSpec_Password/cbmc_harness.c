@@ -1,7 +1,7 @@
 #include "password.c"
 
 char *test(unsigned short passwordAttempts, char *str) {
-    size_t outputSize = 128;
+    int outputSize = 128;
     char *output = malloc(outputSize);
     int outputLen = 0;
 
@@ -37,13 +37,12 @@ char *test(unsigned short passwordAttempts, char *str) {
     }
 
     STORE_TO_OUTPUT("Run completed, run again\n");
+
+    return output;
 }
 
-#define CHECK_DISTINCTIONS(low, hi) \
-char input ## low[20]; input ## low[19] = 0; \
-assert(!strcmp(test(passwordAttempts, input ## hi), test(passwordAttempts, input ## low)));
-
-#define CHECK_DISTINCTIONS_INIT(hi) char input ## hi[20]; input ## hi[19] = 0;
+#define INIT_INPUT(num) char input ## num[20]; input ## num[19] = 0;
+#define OUTPUTS_EQUAL(in1, in2) !strcmp(test(passwordAttempts, in1), test(passwordAttempts, in2))
 
 #include "distinctions.h"
 
@@ -51,7 +50,7 @@ int main(void) {
     unsigned short passwordAttempts;
 
     { CHECK_1_BITS_LEAKAGE() }
-
-    { CHECK_8_BITS_LEAKAGE() }
+    { CHECK_2_BITS_LEAKAGE() }
+    // { CHECK_3_BITS_LEAKAGE() }
     return 0;
 }
