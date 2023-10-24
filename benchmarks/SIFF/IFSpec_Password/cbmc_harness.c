@@ -42,14 +42,15 @@ char *test(unsigned short passwordAttempts, char *str) {
 }
 
 #define INIT_INPUT(num) char input ## num[20]; input ## num[19] = 0;
-#define OUTPUTS_EQUAL(in1, in2) !strcmp(test(passwordAttempts, in1), test(passwordAttempts, in2))
+#define GENERATE_OUTPUT(num) char *output ## num = test(passwordAttempts, input ## num);
+#define OUTPUTS_EQUAL(num1, num2) !strcmp(output ## num1, output ## num2)
 
 #include "distinctions.h"
 
 int main(void) {
     unsigned short passwordAttempts;
 
-    { CHECK_1_BITS_LEAKAGE() }
+    CHECK_1_BITS_LEAKAGE()
     // { CHECK_2_BITS_LEAKAGE() }
     // { CHECK_3_BITS_LEAKAGE() }
     return 0;
