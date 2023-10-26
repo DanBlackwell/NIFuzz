@@ -70,37 +70,7 @@ int main(void)
 	ppos %= 10; // Make sure that ppos is within the size of the file
 	loff_t ppos_orig = ppos;
 
-	// CHECK_1_BITS_LEAKAGE()
-	// CHECK_2_BITS_LEAKAGE()
-	CHECK_3_BITS_LEAKAGE()
-	// CHECK_4_BITS_LEAKAGE()
-	// CHECK_5_BITS_LEAKAGE()
-	// CHECK_6_BITS_LEAKAGE()
+	CHECK_LEAKAGE()
 
         return 0;
 }
-
-// #include "base64.h"
-
-// int main() {
-//         size_t nbytes = 2;
-//         loff_t ppos = 1;
-
-// 	char buf[sizeof(nbytes) + sizeof(ppos) + 4];
-//         memcpy(buf, &nbytes, sizeof(nbytes));
-//         int pos = sizeof(nbytes);
-//         memcpy(buf + pos, &ppos, sizeof(ppos));
-//         pos += sizeof(ppos);
-//         int file_contents = 0xAABB0743;
-//         memcpy(buf + pos, &file_contents, sizeof(file_contents));
-
-// 	int enc_len = Base64encode_len(sizeof(buf));
-// 	char *encoded = malloc(enc_len);
-// 	int res = Base64encode(encoded, buf, sizeof(buf));
-//         printf("{\n  \"PUBLIC\": \"");
-// 	for (int i = 0; i < res; i++) {
-// 		printf("%c", encoded[i]);
-// 	}
-//         printf("\",\n  \"SECRET\": \"MDAwMA==\"\n}\n");
-// 	printf("\npredicted len: %d, actual: %d\n", enc_len, res);
-// }

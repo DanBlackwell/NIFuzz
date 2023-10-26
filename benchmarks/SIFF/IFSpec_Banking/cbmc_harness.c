@@ -132,7 +132,7 @@ char *test(dollars depositAmount, dollars transferAmount) {
 int main(void) {
     dollars depositAmount;
     
-    CHECK_1_BITS_LEAKAGE()
+    CHECK_LEAKAGE()
  
     return 0;
 }

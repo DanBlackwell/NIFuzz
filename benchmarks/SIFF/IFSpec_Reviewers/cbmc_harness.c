@@ -120,7 +120,7 @@ int main(void) {
         ReviewProcess_addReview(&rp, 0, reviewScore, reviewComment);
     }
 
-    CHECK_1_BITS_LEAKAGE()
+    CHECK_LEAKAGE()
 
     return 0;
 }

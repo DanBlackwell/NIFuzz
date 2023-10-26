@@ -141,31 +141,8 @@ int main(void) {
 	current->sas_ss_sp = &default_stack;
 	current->sas_ss_size = 1024;
 
-	CHECK_1_BITS_LEAKAGE()
+	CHECK_LEAKAGE()
 
     return 0;
 }
 
-
-// #include "base64.h"
-
-// int main() {
-//     stack_t uss = {0};
-// 	uss.ss_flags = 0;
-
-// 	long stack = 0x1234567890abcdef;
-
-// 	char buf[sizeof(uss.ss_flags) + sizeof(stack)];
-// 	memcpy(buf, &uss.ss_flags, sizeof(uss.ss_flags));
-// 	memcpy(buf + sizeof(uss.ss_flags), &stack, sizeof(stack));
-
-// 	int enc_len = Base64encode_len(sizeof(buf));
-// 	char *encoded = malloc(enc_len);
-// 	int res = Base64encode(encoded, buf, sizeof(buf));
-//         printf("{\n  \"PUBLIC\": \"");
-// 	for (int i = 0; i < res; i++) {
-// 		printf("%c", encoded[i]);
-// 	}
-//         printf("\",\n  \"SECRET\": \"MDAwMA==\"\n}\n");
-// 	printf("\npredicted len: %d, actual: %d\n", enc_len, res);
-// }

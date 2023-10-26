@@ -8,7 +8,7 @@ for bits in range(9):
     print(' \\\n  ', end='')
     for cnt in range(1, count + 1):
         print('GENERATE_OUTPUT({}) '.format(cnt), end='')
-    print('\\\n  \\\n  assert(!( \\\n    ', end='')
+    print('\\\n  \\\n  __CPROVER_assume( \\\n    ', end='')
 
     start = True
     for cnt in range(1, count):
@@ -18,4 +18,12 @@ for bits in range(9):
             else:
                 start = False
             print('!OUTPUTS_EQUAL({}, {})'.format(cnt, cmp), end='')
-    print('\\\n  ));\n')
+    print('\\\n  ); \\')
+
+    final = count + 1
+    print('  INIT_INPUT({}) GENERATE_OUTPUT({}) \\'.format(final, final))
+    print('  __CPROVER_assert( \\')
+    print('    OUTPUTS_EQUAL({}, 1)'.format(final), end='')
+    for cnt in range(2, count + 1):
+      print(' || OUTPUTS_EQUAL({}, {})'.format(final, cnt), end='')
+    print(', \\\n    "Leak bound <= {} bits" \\\n  );\n'.format(bits + 1))

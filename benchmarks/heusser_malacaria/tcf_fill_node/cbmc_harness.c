@@ -1410,35 +1410,8 @@ int main(void) {
 #define GENERATE_OUTPUT(num) struct sk_buff skb ## num = skb; if (tcf_fill_node(&skb ## num, &tp, fh, pid, seq, flags, event)) return 1;
 #define OUTPUTS_EQUAL(num1, num2) (skb ## num1.len == skb ## num2.len && !memcmp(skb ## num1.data, skb ## num2.data, skb ## num1.len))
 
-	CHECK_1_BITS_LEAKAGE()
+	CHECK_LEAKAGE()
 
         return 0;
 }
 
-// #include "base64.h"
-
-// int main() {
-//         unsigned long fh = 0;
-// 	u32 pid = 0, seq = 0;
-// 	u16 flags = 0;
-// 	int event = 0;
-
-// 	char buf[sizeof(fh) + sizeof(pid) + sizeof(seq) + sizeof(flags) + sizeof(event)];
-// 	memcpy(buf, &fh, sizeof(fh));
-//         int pos = sizeof(fh);
-// #define ENCODE(var) memcpy(buf + pos, &var, sizeof(var)); pos += sizeof(var);
-//         ENCODE(pid);
-//         ENCODE(seq);
-//         ENCODE(flags);
-//         ENCODE(event);
-
-// 	int enc_len = Base64encode_len(sizeof(buf));
-// 	char *encoded = malloc(enc_len);
-// 	int res = Base64encode(encoded, buf, sizeof(buf));
-//         printf("{\n  \"PUBLIC\": \"");
-// 	for (int i = 0; i < res; i++) {
-// 		printf("%c", encoded[i]);
-// 	}
-//         printf("\",\n  \"SECRET\": \"MDAwMA==\"\n}\n");
-// 	printf("\npredicted len: %d, actual: %d\n", enc_len, res);
-// }

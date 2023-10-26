@@ -19,7 +19,7 @@ RESULTS_DIR="$RESULTS_DIR/$(basename $SCRIPT_DIR)"
 
 for BITS_CHECKED in $(seq 1 8); do
   echo " Checking for $BITS_CHECKED bits of leakage"
-  goto-cc -D CHECK_LEAKAGE=CHECK_${BITS_CHECKED}_BITS_LEAKAGE cbmc_harness.c -I$CBMC_DEFS_DIR -DCERT_PATH="./" repo/libssl.a repo/libcrypto.a -Irepo/include -I../../CBMC_utils -lm -ldl -o model_check > $RESULTS_DIR/${BITS_CHECKED}_bits.out 2>&1
+  goto-cc -D CHECK_LEAKAGE=CHECK_${BITS_CHECKED}_BITS_LEAKAGE cbmc_harness.c -I$CBMC_DEFS_DIR -o model_check > $RESULTS_DIR/${BITS_CHECKED}_bits.out 2>&1
   cbmc model_check --unwind 64 >> $RESULTS_DIR/${BITS_CHECKED}_bits.out 2>&1
   LEAKED=$(grep -e "main.*Leak bound .*\: SUCCESS" $RESULTS_DIR/${BITS_CHECKED}_bits.out)
   if [[ $LEAKED != "" ]]; then

@@ -12,7 +12,7 @@
 
 #define INIT_INPUT(num) 
 #define GENERATE_OUTPUT(num) struct sockaddr output ## num = {0}; atalk_getname(&sock, &output ## num, &uaddr_len, peer);
-#define OUTPUTS_EQUAL(out1, out2) (out1.sa_family == out2.sa_family && !memcmp(out1.sa_data, out2.sa_data, sizeof(out1.sa_data)))
+#define OUTPUTS_EQUAL(out1, out2) (output ## out1.sa_family == output ## out2.sa_family && !memcmp(output ## out1.sa_data, output ## out2.sa_data, sizeof(output ## out1.sa_data)))
 
 int main(void) 
 {
@@ -23,7 +23,7 @@ int main(void)
 	int uaddr_len;
 	int peer;
 
-	CHECK_2_BITS_LEAKAGE()
+	CHECK_LEAKAGE()
 
     return 0;
 }
