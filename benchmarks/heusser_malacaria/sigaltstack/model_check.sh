@@ -20,10 +20,17 @@ RESULTS_DIR="$RESULTS_DIR/$(basename $SCRIPT_DIR)"
 for BITS_CHECKED in $(seq 1 8); do
   echo " Checking for $BITS_CHECKED bits of leakage"
   goto-cc -D CHECK_LEAKAGE=CHECK_${BITS_CHECKED}_BITS_LEAKAGE cbmc_harness.c -I$CBMC_DEFS_DIR -o model_check
-  cbmc model_check --unwind 128 > $RESULTS_DIR/${BITS_CHECKED}_bits.out 2>&1
-  LEAKED=$(grep -e "main.*Leak bound .*\: SUCCESS" $RESULTS_DIR/${BITS_CHECKED}_bits.out)
-  if [[ $LEAKED != "" ]]; then
-    echo "Less than or equal to $BITS_CHECKED bits of leakage (ground truth: $BITS_LEAKED)"
+  cbmc model_check --object-bits 16 --unwind 128 > $RESULTS_DIR/${BITS_CHECKED}_bits.out 2>&1
+
+  LEAKED=$(grep -e "main.*Leak bound .*\: FAILURE" $RESULTS_DIR/${BITS_CHECKED}_bits.out)
+  if [[ $LEAKED == "" ]]; then
+
+    EXECUTED=$(grep -e "main.*Leak bound " $RESULTS_DIR/${BITS_CHECKED}_bits.out)
+    if [[ $EXECUTED == "" ]]; then
+      echo "Failed to complete execution checking for $BITS_CHECKED bits of leakage"
+    else
+      echo "Less than or equal to $BITS_CHECKED bits of leakage (ground truth: $BITS_LEAKED)"
+    fi
     break
   fi
 done

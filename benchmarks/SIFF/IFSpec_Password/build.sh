@@ -11,7 +11,7 @@ if [[ "$1" == "fuzz" ]]; then
   $CC -O0 -Wall $CFLAGS fuzz_harness.c -I../../ -o fuzz
 
 elif [[ "$1" == "CBMC" || "$1" == "cbmc" ]]; then
-  goto-cc cbmc_harness.c -I../../CBMC_utils -o model_check
+  goto-cc -D CHECK_LEAKAGE=CHECK_2_BITS_LEAKAGE cbmc_harness.c -I$CBMC_DEFS_DIR -o model_check
 
 else
   echo "Usage: $0 [CBMC|fuzz]"

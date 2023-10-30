@@ -22,11 +22,13 @@ which = { version = "4.0.2" }
 
 [dependencies]
 # libafl = { path = "../../libafl/", features = ["default"] }
+# libafl_targets = { path = "../../libafl_targets/" }
+# libafl_cc = { path = "../../libafl_cc/" }
 libafl = "0.10.1"
+libafl_targets = "0.10.1"
+libafl_cc = "0.11.0"
 clap = { version = "4.0", features = ["derive"] }
 nix = "0.26"
-libafl_targets = { path = "../../libafl_targets/" }
-libafl_cc = { path = "../../libafl_cc/" }
 serde = "1.0.166"
 hashbrown = "0.14.0"
 nonblock = "0.2.0"

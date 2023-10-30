@@ -1,0 +1,18 @@
+FROM diffblue/cbmc:5.94.0
+SHELL ["/bin/bash", "-c"]
+
+ENV RESULTS_DIR=/home/results CBMC_DEFS_DIR=/home/benchmarks/CBMC_utils
+COPY benchmarks/ /home/benchmarks
+WORKDIR /home/benchmarks
+RUN apt update && apt install -y make
+RUN echo "CBMC_DEFS_DIR=$CBMC_DEFS_DIR" && ./build_all.sh cbmc
+
+CMD for COLLECTION in SIFF heusser_malacaria; do \
+        pushd $COLLECTION; \
+            for DIR in */; do \
+                pushd $DIR; \
+                    timeout 10800 ./model_check.sh; \
+                popd; \
+            done; \
+        popd; \
+    done

@@ -1,6 +1,8 @@
 #ifndef MEMORY_INFO_LEAKAGE_H
 #define MEMORY_INFO_LEAKAGE_H
 
+#include <stddef.h>
+
 #define SEED_MEMORY(seed) { srand(seed); initRepeatedVal(); }
 
 void initRepeatedVal(void);
