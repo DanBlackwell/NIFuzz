@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="javadoc">
+    <target name="javadoc">
+        <javadoc access="public" additionalparam="-J-Duser.language=en " author="true" classpath="../java-files/jfreechart-1.0.14/lib/jfreechart-1.0.14-experimental.jar:../java-files/jfreechart-1.0.14/lib/servlet.jar:../java-files/jfreechart-1.0.14/lib/junit.jar:../java-files/jfreechart-1.0.14/lib/swtgraphics2d.jar:../java-files/jfreechart-1.0.14/lib/iText-2.1.5.jar:../java-files/jfreechart-1.0.14/lib/jfreechart-0.5.6.zip:../java-files/jfreechart-1.0.14/lib/jfreechart-1.0.14-swt.jar:../java-files/jfreechart-1.0.14/lib/jcommon-1.0.17.jar:../java-files/jfreechart-1.0.14/lib/gnujaxp.jar:../CIL-future/commons-math3-3.2.jar:../java-files/jfreechart-1.0.14/lib/jfreechart-1.0.14.jar:../java-files/jfreechart-1.0.14/lib/jfreechart-0.9.3.jar:../java-files/jfreechart-1.0.14/lib/jcommon-0.6.4.jar" destdir="doc" nodeprecated="true" nodeprecatedlist="true" noindex="false" nonavbar="false" notree="false" packagenames="bham.leakiest.comparator,bham.leakiest.infotheory,bham.leakiest" source="1.7" sourcepath="src" splitindex="true" use="true" version="true"/>
+    </target>
+</project>

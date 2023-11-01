@@ -122,6 +122,11 @@ char *test(dollars depositAmount, dollars transferAmount) {
     owner.payBeneficiary(&owner, &beneficiary, transferAmount);
 
     char *output = malloc(outputBufLen + 1); 
+    if (!outputBufLen) {
+        output[0] = 0;
+	return output;
+    }
+
     strcpy(output, outputBuf);
     *outputBuf = 0;
     outputBufLen = 0;

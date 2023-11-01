@@ -36,6 +36,6 @@ char *PasswordManager_tryLogin(struct PasswordManager *pm, char *tryedPassword) 
 	return NULL;
 
     } else {
-        return "No more password tries allowed";
+        return "No more password tries allowed\n";
     }
 }

@@ -54,7 +54,7 @@ void ReviewProcess_sendNotifications(ReviewProcess *rp) {
 
     for (int i = 0; i < rp->len; i++) {
         Review *r = &rp->reviews[i];
-        int written = snprintf(outputBuf, sizeof(outputBuf) - outputBufLen,
+        int written = snprintf(outputBuf + outputBufLen, sizeof(outputBuf) - outputBufLen,
                                "---\n"
                                "Score: %d\n"
                                "Review: %s\n"

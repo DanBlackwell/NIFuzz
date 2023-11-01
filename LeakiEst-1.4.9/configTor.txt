@@ -1,0 +1,32 @@
+//CFG//
+////// Configuration file for Tor analysis ///////
+// Usage:
+// java -jar leakiest-1.2.jar -cfg configTor.txt
+//
+// Note: Do not edit the first line of this file.
+//////////////////////////////////////////////////
+// Choose task from mi(mutual information), cp(capacity),
+// me(min-entropy leakage) and mc(min-capacity)
+-mi
+
+// Choose whether observation is di(discrete) or co(continuous)
+-di
+
+//////////////////////////////////////////////////
+// When analysing an ARFF file
+-a
+	"./data/Tor.arff"
+
+//////////////////////////////////////////////////
+// Set high (secret) attributes when analysing an ARFF file
+-high  75
+
+// Set low (observation) attributes when analysing an ARFF file
+-low   @each
+
+//////////////////////////////////////////////////
+// Print a channel matrix when analysing discrete observation
+//-p
+
+// Set the level of information shown (0 to 5)
+-v       0

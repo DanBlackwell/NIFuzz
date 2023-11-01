@@ -1,0 +1,23 @@
+//CFG//
+// Configuration file for British passport analysis (fixed)
+// Usage:
+// java -jar leakiest-1.2.jar -cfg configPassportBritishFix.txt
+//
+// Note: Do not edit the first line of this file.
+//////////////////////////////////////////////////
+// Choose task from mi(mutual information), cp(capacity),
+// me(min-entropy leakage) and mc(min-capacity)
+-mi
+
+// Choose whether observation is di(discrete) or co(continuous)
+-co
+
+//////////////////////////////////////////////////
+// When an observation file
+// When analysing two (continuous) observation files
+-o
+	"./data/timesBritish1000FixMedian.txt"
+
+//////////////////////////////////////////////////
+// Set the level of information shown (0 to 5)
+-v       0

@@ -29,32 +29,35 @@ void *get_min_stack_bottom(void);
   __stack_bottom = (uint64_t *)repeatedVal; \
 }
 
-// uint64_t *__stack_bottom_ptr, *__stack_top_ptr; \
-// uint64_t *__stack_backup; \
-// { \
-//   uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom(); \
-//   uint64_t repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand(); \
-//   volatile uint64_t *stack_loc; stack_loc = (void *)(&stack_loc); \
-//   __stack_backup = malloc(1 + stack_loc - __stack_bottom); \
-//   __stack_bottom_ptr = __stack_bottom; __stack_top_ptr = (uint64_t *)stack_loc; \
-//   uint64_t *backup = __stack_backup; \
-//  \
-//   do { \
-//     *backup = *stack_loc; backup++; \
-//     *stack_loc = repeatedVal; \
-//   } while (stack_loc-- > __stack_bottom + 1); \
-//  \
-//   stack_loc = (uint64_t *)repeatedVal; \
-//   __stack_bottom = (uint64_t *)repeatedVal; \
-// }  
 
-// #define RESTORE_STACK() { \
-//   volatile uint64_t *stack_loc = __stack_top_ptr; \
-//  \
-//   do { \
-//     *stack_loc = *__stack_backup; __stack_backup++; \
-//   } while (stack_loc-- > __stack_bottom_ptr); \
-//  \
-// }  
+/* uint64_t *__stack_bottom_ptr, *__stack_top_ptr; \
+ uint64_t *__stack_backup; \
+ { \
+   uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom(); \
+   uint64_t repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand(); \
+   volatile uint64_t *stack_loc; stack_loc = (void *)(&stack_loc); \
+   __stack_backup = malloc(1 + stack_loc - __stack_bottom); \
+   __stack_bottom_ptr = __stack_bottom; __stack_top_ptr = (uint64_t *)stack_loc; \
+   uint64_t *backup = __stack_backup; \
+  \
+   do { \
+     *backup = *stack_loc; backup++; \
+     *stack_loc = repeatedVal; \
+   } while (stack_loc-- > __stack_bottom + 1); \
+  \
+   stack_loc = (uint64_t *)repeatedVal; \
+   __stack_bottom = (uint64_t *)repeatedVal; \
+ }  
+*/
+
+/* #define RESTORE_STACK() { \
+   volatile uint64_t *stack_loc = __stack_top_ptr; \
+  \
+   do { \
+     *stack_loc = *__stack_backup; __stack_backup++; \
+   } while (stack_loc-- > __stack_bottom_ptr); \
+  \
+ }  
+*/
 
 #endif

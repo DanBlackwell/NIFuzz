@@ -71,6 +71,8 @@ void *get_cur_stack_bottom() {
     }
   }
 
+  fclose(file);
+
   return (void *)start;
 }
 

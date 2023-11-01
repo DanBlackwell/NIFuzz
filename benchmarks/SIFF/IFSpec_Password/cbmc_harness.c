@@ -50,6 +50,7 @@ char *test(unsigned short passwordAttempts, char *str) {
 int main(void) {
     unsigned short passwordAttempts;
 
+
     CHECK_LEAKAGE()
     return 0;
 }
