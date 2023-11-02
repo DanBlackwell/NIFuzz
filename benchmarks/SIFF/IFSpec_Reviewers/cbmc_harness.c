@@ -74,7 +74,7 @@ void ReviewProcess_sendNotifications(ReviewProcess *rp) {
 
 char *test(ReviewProcess *rp) {
     for (int i = 0; i < rp->len; i++) {
-        int reviewerID;
+        int reviewerID = nondet_revID();
 
         while (true) {
             checkClashes:
@@ -109,10 +109,10 @@ int main(void) {
     numReviewers = numReviewers % 8 + 2;
 
     for (int i = 0; i < numReviewers; i++) {
-        int reviewScore;
+        int reviewScore = nondet_revScore;
         reviewScore = reviewScore % 4 + 1;
 
-        int reviewLen;
+        int reviewLen = nondet_revLen;
         reviewLen = reviewLen % 5 + 1;
         char *reviewComment = malloc(reviewLen);
         reviewComment[reviewLen - 1] = 0;
