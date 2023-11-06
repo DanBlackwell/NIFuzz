@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-for bits in range(9):
+for bits in range(11):
     count = 2 << bits
     print('#define CHECK_{}_BITS_LEAKAGE() \\\n  '.format(bits + 1), end='')
     for cnt in range(1, count + 1):
