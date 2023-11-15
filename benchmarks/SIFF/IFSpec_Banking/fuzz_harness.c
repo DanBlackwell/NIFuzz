@@ -8,7 +8,7 @@
 
 __AFL_FUZZ_INIT();
 
-typedef long dollars;
+typedef unsigned short dollars;
 
 typedef struct Account {
     dollars balance;
@@ -98,11 +98,6 @@ AccountOwner newAccountOwner(Account *account) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// union converter {
-//   char bytes[sizeof(double)];
-//   double floatVal;
-// } converter;
-
 int main(void) {
 
     __AFL_INIT();
@@ -127,6 +122,7 @@ int main(void) {
     for (int i = 0; i < (public_len < sizeof(dollars) ? public_len : sizeof(dollars)); i++) {
         transferAmount |= public_in[i] << 8 * i;
     }
+    if (transferAmount < 0) { transferAmount = -transferAmount; }
 
     Account account = newAccount();
     deposit(&account, depositAmount);

@@ -5,10 +5,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
-
-char *outputBuf;
-int outputBufSize;
-int outputBufLen;
+#include "generate_random.h"
 
 typedef unsigned short dollars;
 
@@ -19,15 +16,7 @@ typedef struct Account {
 } Account;
 
 void logError(char *message) {
-    int msglen = strlen(message);
-    if (outputBufLen + msglen >= outputBufSize) {
-        if (outputBufSize == 0) outputBufSize = 64;
-        while (outputBufSize <= outputBufLen + msglen) outputBufSize *= 2;
-        outputBuf = realloc(outputBuf, outputBufSize);
-    }
-
-    strcpy(outputBuf + outputBufLen, message);
-    outputBufLen += msglen;
+    printf("%s; ", message);
 }
 
 void logTransaction(Account *account, bool isDeposit) {
@@ -108,36 +97,25 @@ AccountOwner newAccountOwner(Account *account) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#define INIT_INPUT(num) dollars transfer ## num;
-#define GENERATE_OUTPUT(num) char *output ## num = test(depositAmount, transfer ## num);
-#define OUTPUTS_EQUAL(num1, num2) !strcmp(output ## num1, output ## num2)
+int main(void) {
 
-#include "distinctions.h"
+    for (int i = 0; i < SAMPLES / REPS; i++) {
+        dollars depositAmount;
+        FILL_RAND_VAR(depositAmount);
 
-char *test(dollars depositAmount, dollars transferAmount) {
-    Account account = newAccount();
-    deposit(&account, depositAmount);
-    AccountOwner owner = newAccountOwner(&account);
-    Beneficiary beneficiary = { .received = 0 };
-    owner.payBeneficiary(&owner, &beneficiary, transferAmount);
+        for (int r = 0; r < REPS; r++) {
+            printf("(%hu,", depositAmount);
+            dollars transferAmount;
+            FILL_RAND_VAR(transferAmount);
 
-    char *output = malloc(outputBufLen + 1); 
-    if (!outputBufLen) {
-        output[0] = 0;
-  	    return output;
+            Account account = newAccount();
+            deposit(&account, depositAmount);
+            AccountOwner owner = newAccountOwner(&account);
+            Beneficiary beneficiary = { .received = 0 };
+            owner.payBeneficiary(&owner, &beneficiary, transferAmount);
+            printf(" )\n");
+        }
     }
 
-    strcpy(output, outputBuf);
-    *outputBuf = 0;
-    outputBufLen = 0;
-
-    return output;
-}
-
-int main(void) {
-    dollars depositAmount;
-    
-    CHECK_LEAKAGE()
- 
     return 0;
 }

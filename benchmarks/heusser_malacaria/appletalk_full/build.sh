@@ -24,9 +24,8 @@ elif [[ "$1" == "CBMC" || "$1" == "cbmc" ]]; then
 elif [[ "$1" == "LeakiEst" || "$1" == "leakiest" ]]; then
   CFLAGS="-Wl,--wrap=malloc -Wl,--wrap=free -Wall"
   gcc -O3 -c ../../memory.c -o m.o
-  EXTRA_FILES="m.o"
   
-  gcc -O0 -Wall $CFLAGS leakiest_harness.c m.o -I../../ -o leakiest
+  gcc -O0 -Wall $CFLAGS leakiest_harness.c m.o -DSAMPLES=10000 -DREPS=1 -I../../ -o leakiest
   
   rm -f *.o
   

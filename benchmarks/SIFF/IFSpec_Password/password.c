@@ -33,7 +33,7 @@ char *PasswordManager_tryLogin(struct PasswordManager *pm, char *tryedPassword) 
             pm->loggedIn = false;
             pm->invalidTries++;
         }
-	return NULL;
+        return NULL;
 
     } else {
         return "No more password tries allowed\n";

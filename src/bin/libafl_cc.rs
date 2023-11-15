@@ -14,14 +14,11 @@ pub fn main() {
             _ => panic!("Could not figure out if c or c++ wrapper was called. Expected {dir:?} to end with c or cxx"),
         };
 
-        println!("args: {:?}", args);
         let is_asm = args.iter().fold(false, |acc, x| {
             if acc { return acc; } 
             let splitted = x.split("."); 
             splitted.clone().count() == 2 && splitted.last().unwrap().to_lowercase() == "s"
         });
-
-        println!("is asm? {is_asm}");
 
         dir.pop();
 

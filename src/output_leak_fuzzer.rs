@@ -380,8 +380,8 @@ where
 
                 if output_data.stdout != *stdout || output_data.stderr != *stderr {
                     inconsistent = true;
-                    println!("Expected consistent output: {:?} {:?} but got {:?} {:?} on run {}", 
-                        output_data.stdout, output_data.stderr, *stdout, *stderr, i);
+                    // println!("Expected consistent output: {:?} {:?} but got {:?} {:?} on run {}", 
+                    //     output_data.stdout, output_data.stderr, *stdout, *stderr, i);
                     break;
                 }
             }
