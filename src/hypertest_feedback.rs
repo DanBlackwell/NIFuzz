@@ -534,7 +534,7 @@ impl<I> InfoLeakChecker<I> {
                 };
 
             let correctness = singletons as f64 / sample_count as f64;
-            println!("violation: {pub_in}, actual_finds: {}, expected: {expected_finds}, correctness: {correctness}", hash_val.uniform_pub_outs_to_sec_ins.len());
+            // println!("violation: {pub_in}, actual_finds: {}, expected: {expected_finds}, correctness: {correctness}", hash_val.uniform_pub_outs_to_sec_ins.len());
         }
 
         Ok(SamplesInfo { singletons, doubletons, sample_count })

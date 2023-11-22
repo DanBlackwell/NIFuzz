@@ -393,10 +393,23 @@ where
                         if is_new_violation {
                             println!("Found new violation!");
                             assert!(failing_hypertest.test_one.0.get_public_part_bytes() == failing_hypertest.test_two.0.get_public_part_bytes());
-                            println!("  test 1 in : {:?}", failing_hypertest.test_one.0.get_raw_bytes());
-                            println!("  test 1 out: {:?}", failing_hypertest.test_one.1.to_string());
-                            println!("  test 2 in : {:?}", failing_hypertest.test_two.0.get_raw_bytes());
-                            println!("  test 2 out: {:?}", failing_hypertest.test_two.1.to_string());
+
+                            macro_rules! maybe_truncate {
+                                ($arr:expr) => {
+                                    if $arr.len() > 60 { &$arr[..60] } else { $arr }
+                                };
+                            }
+
+                            println!("  test 1 in : {:?}", maybe_truncate!(failing_hypertest.test_one.0.get_raw_bytes()));
+                            let t1_output = failing_hypertest.test_one.1.to_string();
+                            let t1_chars = t1_output.chars().into_iter().collect::<Vec<char>>();
+                            let t1_trunc = maybe_truncate!(&t1_chars);
+                            println!("  test 1 out: {:?}", t1_trunc.into_iter().collect::<String>());
+                            println!("  test 2 in : {:?}", maybe_truncate!(failing_hypertest.test_two.0.get_raw_bytes()));
+                            let t2_output = failing_hypertest.test_two.1.to_string();
+                            let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
+                            let t2_trunc = maybe_truncate!(&t2_chars);
+                            println!("  test 2 out: {:?}", t2_trunc.into_iter().collect::<String>());
                             state.violations_mut().add(Testcase::new(input.clone())).unwrap();
                         }
                     },

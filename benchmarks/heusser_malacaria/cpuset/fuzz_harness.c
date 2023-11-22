@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // typedef long long loff_t;
 
@@ -54,12 +55,18 @@ struct ctr_struct {
 
 int copy_to_user(void *user_dest, const void *kernel_buf, size_t size)
 {
-	for (size_t i = 0; i < size; i++) {
-		printf("%hhx", ((char *)kernel_buf)[i]);
-	}
-	printf("\n");
+  const char hex_str[]= "0123456789abcdef";
+  char *out_str = malloc(2 * size + 1);
+  int pos = 0;
+  for (int i = 0; i < size; i++) {
+    out_str[pos++] = hex_str[(((char *)kernel_buf)[i] >> 4) & 0x0F];
+    out_str[pos++] = hex_str[((char *)kernel_buf)[i] & 0x0F];
+  }
+  out_str[pos] = 0;
 
-        return 0;
+  puts(out_str);
+
+  return 0;
 }
 
 ssize_t simple_read_from_buffer(void /*__user*/ *to, size_t count, loff_t *ppos,
@@ -118,40 +125,40 @@ int main(int argc, char **argv)
 	const uint8_t *public_in = Data + sizeof(public_len);
 	const uint8_t *secret_in = public_in + public_len;
 
-        // handle SECRET
-
-        uint32_t seed = 0;
-	for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
-		seed |= secret_in[i] << 8 * i;
-	}
-
-	SEED_MEMORY(seed);
-	FILL_STACK();
-
-        // handle PUBLIC
-
-        size_t nbytes = 0;
-        loff_t ppos = 0;
-        if (public_len < sizeof(nbytes) + sizeof(ppos) + 4) {
-                return 1;
-        }
-
-        int pos = 0;
-        nbytes = *(size_t *)public_in; 
-        pos += sizeof(nbytes);
-        ppos = *(loff_t *)(public_in + pos);
-        pos += sizeof(ppos);
-	
-        int bufsz = public_len - pos;
-        struct ctr_struct internal_structure = { .bufsz = bufsz, .buf = malloc(bufsz) };
-        memcpy(internal_structure.buf, public_in, bufsz);
-        struct file the_file = { .private_data = (void *)&internal_structure };
-
-        // execute the function
-
-        cpuset_tasks_read(&the_file, NULL, nbytes, &ppos);
-
-        return 0;
+  // handle SECRET
+  
+  uint32_t seed = 0;
+  for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
+    seed |= secret_in[i] << 8 * i;
+  }
+  
+  SEED_MEMORY(seed);
+  
+  // handle PUBLIC
+  
+  size_t nbytes = 0;
+  loff_t ppos = 0;
+  if (public_len < sizeof(nbytes) + sizeof(ppos) + 4) {
+    return 1;
+  }
+  
+  int pos = 0;
+  nbytes = *(size_t *)public_in; 
+  pos += sizeof(nbytes);
+  ppos = *(loff_t *)(public_in + pos);
+  pos += sizeof(ppos);
+  
+  int bufsz = public_len - pos;
+  struct ctr_struct internal_structure = { .bufsz = bufsz, .buf = malloc(bufsz) };
+  memcpy(internal_structure.buf, public_in, bufsz);
+  struct file the_file = { .private_data = (void *)&internal_structure };
+  
+  // execute the function
+  
+  FILL_STACK();
+  cpuset_tasks_read(&the_file, NULL, nbytes, &ppos);
+  
+  return 0;
 }
 
 // #include "base64.h"

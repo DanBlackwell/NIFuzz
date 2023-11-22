@@ -3,9 +3,11 @@
 
 #include <stddef.h>
 
-#define SEED_MEMORY(seed) { srand(seed); initRepeatedVal(); }
+#define SEED_MEMORY(seed) { srand(seed); enableMemWrap(); initRepeatedVal(); }
 
 void initRepeatedVal(void);
+void enableMemWrap(void);
+void disableMemWrap(void);
 void *__wrap_malloc(size_t);
 void *get_stack_top(void);
 void *get_cur_stack_bottom(void);

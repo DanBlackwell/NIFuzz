@@ -10,12 +10,23 @@ extern void __real_free(void *);
 extern void *__real_realloc(void *, size_t);
 
 uint64_t repeatedVal = 0;
+int memWrapEnabled = 0;
 
 void initRepeatedVal() {
   repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand();
 }
 
+void enableMemWrap() {
+  memWrapEnabled = 1;
+}
+
+void disableMemWrap() {
+  memWrapEnabled = 0;
+}
+
 void *__wrap_malloc(size_t bytes) {
+  if (!memWrapEnabled) return __real_malloc(bytes);
+
   size_t adjusted_bytes = bytes + 32; // Add some extra bytes padding
   uint64_t *raw = (uint64_t *)__real_malloc(adjusted_bytes);
 
@@ -31,10 +42,16 @@ void *__wrap_malloc(size_t bytes) {
 }
 
 void __wrap_free(void *ptr) {
+  if (!memWrapEnabled) { 
+    __real_free(ptr);
+    return;
+  }
   __real_free(((uint64_t *)ptr) - 2);
 }
 
 void *__wrap_realloc(void *ptr, size_t new_size) {
+  if (!memWrapEnabled) return __real_realloc(ptr, new_size);
+
   __wrap_free(ptr);
   return __wrap_malloc(new_size);
 }
