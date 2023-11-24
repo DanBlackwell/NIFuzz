@@ -2,7 +2,8 @@ use std::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use libafl::{bolts::tuples::Named, inputs::UsesInput, observers::Observer};
+use libafl_bolts::Named;
+use libafl::{inputs::UsesInput, observers::Observer};
 
 /// An observer that captures output of a target.
 /// Only works for supported executors.

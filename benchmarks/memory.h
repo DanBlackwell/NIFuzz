@@ -15,13 +15,22 @@ void *get_min_stack_bottom(void);
 
 // void fill_stack(void);
 
+#ifdef __aarch64__
+  #define GET_SP(var) asm(\
+    "MOV	%0, sp" \
+    : "=r" (var) \
+    )
+#else 
+  #define GET_SP(var) asm("mov %%rsp, %0;" /* load the stack pointer addr */ \
+          :"=r"(var) /* write-only stack_loc */ \
+    )
+#endif 
+
 #define FILL_STACK() { \
   uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom(); \
   uint64_t repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand(); \
   volatile uint64_t *stack_loc; \
-  asm("mov %%rsp, %0;" /* load the stack pointer addr */ \
-        :"=r"(stack_loc) /* write-only stack_loc */ \
-    ); \
+  GET_SP(stack_loc); \
  \
   do { \
     *stack_loc = repeatedVal; \

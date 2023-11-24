@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// typedef long long loff_t;
+typedef long long loff_t;
 
 #define EFAULT          14      /* Bad address */
 #define EINVAL          22      /* Invalid argument */

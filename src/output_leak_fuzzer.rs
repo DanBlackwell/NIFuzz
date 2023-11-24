@@ -12,8 +12,8 @@ use crate::leak_fuzzer_state::HasViolations;
 
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
+use libafl_bolts::{current_time, rands::Rand};
 use libafl::{
-    bolts::current_time,
     corpus::{Corpus, CorpusId, HasTestcase, Testcase},
     events::{Event, EventConfig, EventFirer, EventProcessor, ProgressReporter},
     executors::{Executor, ExitKind, HasObservers},
@@ -24,9 +24,9 @@ use libafl::{
     schedulers::Scheduler,
     stages::StagesTuple,
     start_timer,
-    state::{HasClientPerfMonitor, HasCorpus, HasExecutions, HasMetadata, HasSolutions, UsesState, HasRand},
+    state::{HasClientPerfMonitor, HasCorpus, HasExecutions, HasMetadata, HasSolutions, UsesState, HasRand, HasLastReportTime},
     fuzzer::{HasScheduler, HasFeedback, HasObjective, ExecutionProcessor, EvaluatorObservers, Evaluator, Fuzzer, ExecuteInputResult, ExecutesInput},
-    Error, prelude::{Input, Rand, HasTargetBytes},
+    Error, prelude::{Input, HasTargetBytes},
 };
 
 /// Send a monitor update all 15 (or more) seconds
@@ -279,7 +279,7 @@ where
                     let observers_buf = if manager.configuration() == EventConfig::AlwaysUnique {
                         None
                     } else {
-                        Some(manager.serialize_observers::<OT>(observers)?)
+                        manager.serialize_observers::<OT>(observers)?
                     };
                     manager.fire(
                         state,
@@ -499,7 +499,7 @@ where
         let observers_buf = if manager.configuration() == EventConfig::AlwaysUnique {
             None
         } else {
-            Some(manager.serialize_observers::<OT>(observers)?)
+            manager.serialize_observers::<OT>(observers)?
         };
         manager.fire(
             state,
@@ -525,7 +525,7 @@ where
     EM: ProgressReporter + EventProcessor<E, Self, State = CS::State>,
     F: Feedback<CS::State>,
     OF: Feedback<CS::State>,
-    CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase + HasViolations + HasRand,
+    CS::State: HasClientPerfMonitor + HasExecutions + HasMetadata + HasCorpus + HasTestcase + HasViolations + HasRand + HasLastReportTime,
     ST: StagesTuple<E, EM, CS::State, Self>,
     OT: ObserversTuple<CS::State> + Serialize + DeserializeOwned,
     HTF: HypertestFeedback<<CS::State as UsesInput>::Input>,

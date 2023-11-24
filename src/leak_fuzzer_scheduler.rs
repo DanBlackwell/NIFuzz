@@ -4,8 +4,8 @@ extern crate alloc;
 use alloc::borrow::ToOwned;
 use core::marker::PhantomData;
 
+use libafl_bolts::rands::Rand;
 use libafl::{
-    bolts::rands::Rand,
     corpus::{Corpus, CorpusId, HasTestcase},
     inputs::UsesInput,
     random_corpus_id,

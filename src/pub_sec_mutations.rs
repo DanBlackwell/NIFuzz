@@ -4,8 +4,12 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, vec::Vec};
 use core::{cmp::min, mem::size_of};
 
+use libafl_bolts::{
+    Named, 
+    rands::Rand, 
+    bolts_prelude::{tuple_list, tuple_list_type}
+};
 use libafl::{
-    bolts::{rands::Rand, tuples::Named},
     corpus::Corpus,
     mutators::{
         mutations::{
@@ -18,7 +22,7 @@ use libafl::{
     prelude::{
         ARITH_MAX,
         INTERESTING_8, INTERESTING_16, INTERESTING_32,
-        tuple_list, tuple_list_type,
+        // tuple_list, tuple_list_type,
     },
     random_corpus_id,
     state::{HasCorpus, HasMaxSize, HasRand},

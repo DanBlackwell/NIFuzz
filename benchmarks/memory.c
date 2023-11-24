@@ -4,10 +4,18 @@
 #include <string.h>
 #include <sys/resource.h>
 
-extern void *malloc(size_t);
-extern void *__real_malloc(size_t);
-extern void __real_free(void *);
-extern void *__real_realloc(void *, size_t);
+#ifdef __APPLE__
+  #include <dlfcn.h>
+
+  void* (*__real_malloc)(size_t bytes);
+  void (*__real_free)(void *);
+  void* (*__real_realloc)(void *, size_t);
+#else
+  extern void *malloc(size_t);
+  extern void *__real_malloc(size_t);
+  extern void __real_free(void *);
+  extern void *__real_realloc(void *, size_t);
+#endif
 
 uint64_t repeatedVal = 0;
 int memWrapEnabled = 0;
@@ -25,6 +33,12 @@ void disableMemWrap() {
 }
 
 void *__wrap_malloc(size_t bytes) {
+#ifdef __APPLE__
+  if (!__real_malloc) {
+    __real_malloc = dlsym(RTLD_NEXT, "malloc");
+  }
+#endif
+
   if (!memWrapEnabled) return __real_malloc(bytes);
 
   size_t adjusted_bytes = bytes + 32; // Add some extra bytes padding
@@ -42,6 +56,12 @@ void *__wrap_malloc(size_t bytes) {
 }
 
 void __wrap_free(void *ptr) {
+#ifdef __APPLE__
+  if (!__real_free) {
+    __real_free = dlsym(RTLD_NEXT, "free");
+  }
+#endif
+
   if (!memWrapEnabled) { 
     __real_free(ptr);
     return;
@@ -50,6 +70,12 @@ void __wrap_free(void *ptr) {
 }
 
 void *__wrap_realloc(void *ptr, size_t new_size) {
+#ifdef __APPLE__
+  if (!__real_realloc) {
+    __real_realloc = dlsym(RTLD_NEXT, "realloc");
+  }
+#endif
+
   if (!memWrapEnabled) return __real_realloc(ptr, new_size);
 
   __wrap_free(ptr);

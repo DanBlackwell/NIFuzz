@@ -2,14 +2,14 @@ use core::time::Duration;
 use std::path::PathBuf;
 
 use clap::{self, Parser};
+use libafl_bolts::{
+    current_nanos,
+    rands::StdRand,
+    shmem::{ShMem, ShMemProvider, UnixShMemProvider},
+    tuples::{tuple_list, MatchName},
+    AsMutSlice, Truncate,
+};
 use libafl::{
-    bolts::{
-        current_nanos,
-        rands::StdRand,
-        shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-        tuples::{tuple_list, MatchName},
-        AsMutSlice, Truncate,
-    },
     corpus::{Corpus, InMemoryCorpus, OnDiskCorpus},
     events::SimpleEventManager,
     executors::HasObservers,

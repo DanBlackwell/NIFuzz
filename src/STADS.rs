@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use ahash::{HashMap, HashMapExt};
-use libafl::{prelude::{MapFeedback, UsesObserver, UsesInput, Observer, Feedback, IsNovel, MapObserver, AsIter, Reducer, ObserversTuple, Testcase, ExitKind, EventFirer, Named, HasObserverName}, state::{HasClientPerfMonitor, HasNamedMetadata}, Error};
+use libafl_bolts::{AsIter, Named};
+use libafl::{prelude::{MapFeedback, UsesObserver, UsesInput, Observer, Feedback, IsNovel, MapObserver, Reducer, ObserversTuple, Testcase, ExitKind, EventFirer, HasObserverName}, state::{HasClientPerfMonitor, HasNamedMetadata}, Error};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 pub struct STADSstatistics {

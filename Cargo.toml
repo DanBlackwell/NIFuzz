@@ -24,9 +24,10 @@ which = { version = "4.0.2" }
 # libafl = { path = "../../libafl/", features = ["default"] }
 # libafl_targets = { path = "../../libafl_targets/" }
 # libafl_cc = { path = "../../libafl_cc/" }
-libafl = "0.10.1"
-libafl_targets = "0.10.1"
-libafl_cc = "0.11.0"
+libafl = "0.11.1"
+libafl_targets = "0.11.1"
+libafl_cc = "0.11.1"
+libafl_bolts = "0.11.1"
 clap = { version = "4.0", features = ["derive"] }
 nix = "0.26"
 serde = "1.0.166"

@@ -28,14 +28,14 @@ use nix::{
 
 #[cfg(feature = "regex")]
 use crate::observers::{get_asan_runtime_flags_with_log_path, AsanBacktraceObserver};
+use libafl_bolts::{
+    fs::{get_unique_std_input_file, InputFile},
+    os::pipes::Pipe,
+    shmem::{ShMem, ShMemProvider, UnixShMemProvider},
+    tuples::Prepend,
+    AsMutSlice, AsSlice, Truncate,
+};
 use libafl::{
-    bolts::{
-        fs::{get_unique_std_input_file, InputFile},
-        os::pipes::Pipe,
-        shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-        tuples::Prepend,
-        AsMutSlice, AsSlice, Truncate,
-    },
     executors::{
         forkserver::ConfigTarget,
         Executor, ExitKind, HasObservers,

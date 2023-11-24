@@ -4,7 +4,6 @@ use core::marker::PhantomData;
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
 use libafl::{
-    bolts::rands::Rand,
     corpus::{Corpus, CorpusId, Testcase},
     fuzzer::Evaluator,
     mark_feature_time,
@@ -15,6 +14,7 @@ use libafl::{
     state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState},
     Error,
 };
+use libafl_bolts::rands::Rand;
 use crate::{leak_fuzzer_state::HasViolations, pub_sec_mutations::SecretUniformMutator, pub_sec_input::{PubSecInput, CurrentMutateTarget}};
 
 

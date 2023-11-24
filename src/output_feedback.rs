@@ -7,10 +7,8 @@ use crate::output_observer::ObserverWithOutput;
 
 use serde::{Deserialize, Serialize};
 
-use libafl::{
-    bolts::tuples::Named,
-    feedbacks::HasObserverName,
-};
+use libafl_bolts::Named;
+use libafl::feedbacks::HasObserverName;
 
 /// The prefix of the metadata names
 pub const OUTPUT_FEEDBACK_METADATA_PREFIX: &str = "output_feedback_metadata_";
@@ -29,7 +27,7 @@ pub struct OutputFeedbackMetadata {
 }
 
 #[rustfmt::skip]
-libafl::impl_serdeany!(OutputFeedbackMetadata);
+libafl_bolts::impl_serdeany!(OutputFeedbackMetadata);
 
 impl OutputFeedbackMetadata {
     /// Create a new [`OutputFeedbackMetadata`]

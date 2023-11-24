@@ -1,10 +1,8 @@
 use hashbrown::HashMap;
 use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
-use libafl::{
-    prelude::Input, 
-    ErrorBacktrace
-};
+use libafl_bolts::ErrorBacktrace;
+use libafl::prelude::Input;
 use crate::output_leak_fuzzer::{IOHashValue, OutputData};
 use crate::pub_sec_input::PubSecInput;
 use crate::OutputObserver;

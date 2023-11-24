@@ -16,12 +16,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use libafl::bolts::rands::StdRand;
+use libafl_bolts::rands::StdRand;
+use libafl_bolts::{
+    rands::Rand,
+    serdeany::{NamedSerdeAnyMap, SerdeAnyMap},
+};
 use libafl::{
-    bolts::{
-        rands::Rand,
-        serdeany::{NamedSerdeAnyMap, SerdeAnyMap},
-    },
     corpus::{Corpus, CorpusId, HasTestcase, Testcase},
     events::{Event, EventFirer, LogSeverity},
     feedbacks::Feedback,
@@ -29,7 +29,7 @@ use libafl::{
     generators::Generator,
     inputs::{Input, UsesInput},
     monitors::ClientPerfMonitor,
-    state::{State, UsesState, HasCorpus, HasMaxSize, HasSolutions, HasRand, HasClientPerfMonitor, HasMetadata, HasNamedMetadata, HasExecutions, HasStartTime},
+    state::{State, UsesState, HasCorpus, HasMaxSize, HasSolutions, HasRand, HasClientPerfMonitor, HasMetadata, HasNamedMetadata, HasExecutions, HasStartTime, HasLastReportTime},
     Error,
     prelude::DEFAULT_MAX_SIZE,
 };
@@ -77,6 +77,9 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
     #[cfg(feature = "std")]
     /// Remaining initial inputs to load, if any
     remaining_initial_files: Option<Vec<PathBuf>>,
+    /// The last time we reported progress (if available/used).
+    /// This information is used by fuzzer `maybe_report_progress`.
+    last_report_time: Option<Duration>,
     phantom: PhantomData<I>,
 }
 
@@ -93,6 +96,20 @@ pub trait HasViolations: UsesInput {
     fn targeting_violations(&self) -> bool;
     /// Set bool indicating whether we are targeting violations or corpus
     fn set_targeting_violations(&mut self, targeting_violations: bool);
+}
+
+impl<I, C, R, SC, VC> HasLastReportTime for LeakFuzzerState<I, C, R, SC, VC> {
+    /// The last time we reported progress,if available/used.
+    /// This information is used by fuzzer `maybe_report_progress`.
+    fn last_report_time(&self) -> &Option<Duration> {
+        &self.last_report_time
+    }
+
+    /// The last time we reported progress,if available/used (mutable).
+    /// This information is used by fuzzer `maybe_report_progress`.
+    fn last_report_time_mut(&mut self) -> &mut Option<Duration> {
+        &mut self.last_report_time
+    }
 }
 
 impl<I, C, R, SC, VC> HasViolations for LeakFuzzerState<I, C, R, SC, VC>
@@ -646,6 +663,7 @@ where
             introspection_monitor: ClientPerfMonitor::new(),
             #[cfg(feature = "std")]
             remaining_initial_files: None,
+            last_report_time: None,
             phantom: PhantomData,
         };
         feedback.init_state(&mut state)?;
