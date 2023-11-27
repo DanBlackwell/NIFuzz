@@ -5,10 +5,6 @@
 // The following line is needed for shared memory testcase fuzzing
 __AFL_FUZZ_INIT();
 
-void vuln(char *buf) {
-  if (strcmp(buf, "vuln") == 0) { abort(); }
-}
-
 int main(int argc, char **argv) {
   // Start the forkserver at this point (i.e., forks will happen here)
   __AFL_INIT();
@@ -35,11 +31,20 @@ int main(int argc, char **argv) {
   unsigned char *secret_buf = public_buf + public_len;
   // printf("total len: %u, public: %u, secret:%u\n", len, public_len, secret_len);
 
-  if (secret_len == 1 || public_len > 1) abort();
+//  if (secret_len == 1 || public_len > 1) abort();
 
-  if (!memcmp(secret_buf, "W0", 1)) {
-    printf("Found it!\n");
+//  if (!memcmp(secret_buf, "W0", 1)) {
+//    printf("Found it!\n");
+//  }
+
+  if (secret_len > 1) {
+    printf("%c%c", secret_buf[1], (char)(secret_buf[2] & 0xF0));
   }
+
+  if (secret_len > 3) {
+    printf("%c", secret_buf[3] & 0x4);
+  }
+  printf("\n");
 
 //   printf("input: %s\n", buf);
   if (public_buf[0] == 'b') {
@@ -47,7 +52,7 @@ int main(int argc, char **argv) {
       if (public_buf[2] == 'd') { abort(); }
     }
   }
-  vuln((char *)public_buf);
+//  vuln((char *)public_buf);
 
   return 0;
 }

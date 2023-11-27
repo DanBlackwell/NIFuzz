@@ -99,16 +99,19 @@ where
                 let mut input = input.clone();
                 input.set_current_mutate_target(CurrentMutateTarget::Secret);
 
-                for i in 0..input.get_secret_part_bytes().len() {
+                for i in 0..(8 * input.get_secret_part_bytes().len()) {
                     let mut input = input.clone();
 
                     input.set_current_mutate_target(CurrentMutateTarget::Secret);
                     let buf = input.get_mutable_current_buf_seg();
-                    if i >= 0 {
-                        let byte = (i as usize) / 8;
-                        let bitmask = 1 << (i as usize) % 8;
-                        buf[byte] |= bitmask;
-                    }
+                    let byte = i / 8;
+                    let bitmask: u8 = 0x80 >> (i % 8);
+                    buf[byte] ^= bitmask;
+
+                    let mut testcase = state.violations().get(idx)?.borrow_mut();
+                    let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+                    metadata.current_bitflips = vec![i];
+                    drop(testcase);
                 
                     // Time is measured directly the `evaluate_input` function
                     let (untransformed, post) = input.try_transform_into(state)?;
@@ -120,9 +123,46 @@ where
                     post.post_exec(state, i as i32, corpus_idx)?;
                     mark_feature_time!(state, PerfFeature::MutatePostExec);
                 }
+
+                let mut testcase = state.violations().get(idx)?.borrow_mut();
+                let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+                metadata.current_bitflips.clear();
+                drop(testcase);
             } else if !metadata.bitflips_do_not_map {
                 // Try random combos of bitflips to check that they do map as expected
                 println!("Ok, should try random combos now!");
+
+                let output_mapped_bits = metadata.bitflip_flips_output_bit.iter()
+                    .enumerate()
+                    .filter(|(_idx, val)| val.is_some())
+                    .map(|(idx, _)| idx)
+                    .collect::<Vec<usize>>();
+                println!("Bits that mapped: {:?}", output_mapped_bits);
+
+                let mut input = input.clone();
+                input.set_current_mutate_target(CurrentMutateTarget::Secret);
+                let secret = input.get_mutable_current_buf_seg();
+                for bit in &output_mapped_bits {
+                    secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
+                }
+                metadata.current_bitflips = output_mapped_bits;
+
+                let (untransformed, post) = input.try_transform_into(state)?;
+
+                drop(testcase);
+
+                let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+
+                start_timer!(state);
+                let i = 0;
+                self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                post.post_exec(state, i as i32, corpus_idx)?;
+                mark_feature_time!(state, PerfFeature::MutatePostExec);
+
+                let mut testcase = state.violations().get(idx)?.borrow_mut();
+                let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+                metadata.current_bitflips.clear();
+                drop(testcase);
             } else {
                 drop(testcase);
 

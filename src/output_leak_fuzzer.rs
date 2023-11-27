@@ -347,7 +347,25 @@ where
 
         let observer = observers.match_name::<OutputObserver>("output").unwrap();
         if state.targeting_violations() {
-            self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &observer);
+            let empty = Vec::new();
+            let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+            let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+            let output_data = OutputData { stdout: stdout.clone(), stderr: stderr.clone() };
+
+            self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data);
+
+            if let Some(idx) = state.violations().current() {
+                if let Ok(testcase) = state.violations().get(*idx) {
+                    let mut testcase = testcase.borrow_mut();
+                    if let Ok(metadata) = testcase.metadata::<LeakQuantifyMetadata>() {
+                        if metadata.current_bitflips.len() > 0 {
+                            self.hypertest_feedback.check_for_bitflip_output(&mut testcase, &output_data);
+                            let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+                            metadata.current_bitflips.clear();
+                        }
+                    }
+                }
+            }
         }
 
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
@@ -379,18 +397,6 @@ where
             }
 
             if !inconsistent {
-                if state.targeting_violations() {
-                    if let Some(idx) = state.violations().current() {
-                        if let Ok(testcase) = state.violations().get(*idx) {
-                            if let Ok(metadata) = testcase.borrow().metadata::<LeakQuantifyMetadata>() {
-                                if metadata.current_bitflips.len() > 0 {
-                                    self.hypertest_feedback.check_for_bitflip_output(&mut testcase.borrow_mut(), &output_data);
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, &output_data);
                 match failing_hypertest {
                     Some((failing_hypertest, is_new_violation)) => { 

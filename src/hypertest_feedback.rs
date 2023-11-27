@@ -50,7 +50,7 @@ where
 
     /// We already know that this input public part witnesses a violation, here is a uniform sampled secret
     /// input that we can use to calculate the probability of witnessing a particular output
-    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_observer: &OutputObserver);
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData);
 
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
@@ -388,13 +388,23 @@ where
                     // Check if any bits differ
                     let diff = new[i] ^ orig[i];
                     if diff != 0 {
-                        flipped_bit = diff.trailing_zeros() as usize;
+                        flipped_bit = 8 * i + diff.leading_zeros() as usize;
                         break 'outer;
                     }
                 }
 
                 if flipped_bit != usize::MAX {
-                    println!("bit {} of input flip maps to bit {flipped_bit} of output", flipped_bit);
+                    println!("bit {} of input flip maps to bit {flipped_bit} of (bit-vector converted) output", metadata.bitflip_flips_output_bit.len());
+                    let mut hex = orig.iter()
+                        .map(|b| format!("{:02x}", b).to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    println!("  orig: {:?}", hex);
+                    hex = new.iter()
+                        .map(|b| format!("{:02x}", b).to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    println!("  new:  {:?}", hex);
                 }
                 metadata.bitflip_flips_output_bit.push(
                     if flipped_bit != usize::MAX { Some(flipped_bit) } else { None }
@@ -407,6 +417,7 @@ where
                     .flat_map(|&idx| metadata.bitflip_flips_output_bit[idx])
                     .collect::<Vec<usize>>();
                 expected_bitflips.sort();
+                println!("Checking expected bitflips {:?}", expected_bitflips);
                 if expected_bitflips.len() == 0 { panic!(); }
 
                 let mut expected_bitflips_iter = expected_bitflips.iter();
@@ -425,19 +436,38 @@ where
                 for i in 0..std::cmp::min(new.len(), orig.len()) {
                     let diff = new[i] ^ orig[i];
                     if diff != 0 {
-                        let flipped_output_pos = diff.trailing_zeros();
-                        if flipped_output_pos as usize != next_bitflip_pos {
-                            // if we find an out of place bitflip then bail
-                            println!("Found output bit flipped at {flipped_output_pos}, but only expected bitflips at {:?}",
-                                expected_bitflips);
-                            metadata.bitflips_do_not_map = true;
-                            return;
-                        } else if let Some(next) = expected_bitflips_iter.next() {
-                            // move on to checking for the next expected bitflip
-                            next_bitflip_pos = *next;
-                        } else {
-                            // We checked all the bitflips and they match
-                            return;
+                        // get a list of the bits that were flipped in this new output
+                        let flipped_bits = (0..8).into_iter()
+                            .filter(|&bit| diff & (0x80 >> bit) != 0)
+                            .collect::<Vec<usize>>();
+
+                        for bit in flipped_bits {
+                            let flipped_output_pos = 8 * i + bit;
+                            if flipped_output_pos != next_bitflip_pos {
+                                let mut hex = orig.iter()
+                                    .map(|b| format!("{:02x}", b).to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(" ");
+                                println!("  orig: {:?}", hex);
+                                hex = new.iter()
+                                    .map(|b| format!("{:02x}", b).to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(" ");
+                                println!("  new:  {:?}", hex);
+                                // if we find an out of place bitflip then bail
+                                println!("Found output bit flipped at {flipped_output_pos}, but only expected bitflips at {:?}",
+                                    expected_bitflips);
+                                metadata.bitflips_do_not_map = true;
+                                return;
+                            } else if let Some(next) = expected_bitflips_iter.next() {
+                                println!("Checked bit successfully, moving on to {next}");
+                                // move on to checking for the next expected bitflip
+                                next_bitflip_pos = *next;
+                            } else {
+                                // We checked all the bitflips and they match
+                                println!("Checked all bits and they matched!");
+                                return;
+                            }
                         }
                     }
 
@@ -450,13 +480,7 @@ where
         }
     }
 
-    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_observer: &OutputObserver) {
-        let observer = output_observer;
-
-        let empty = Vec::new();
-        let stdout = match observer.stdout() { None => &empty, Some(o) => o };
-        let stderr = match observer.stderr() { None => &empty, Some(o) => o };
-
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
             val.hash(&mut hasher);
@@ -469,8 +493,8 @@ where
         let sec_in_hash = hash(input.get_secret_part_bytes());
 
         let mut hasher = DefaultHasher::new();
-        stdout.hash(&mut hasher);
-        stderr.hash(&mut hasher);
+        output_data.stdout.hash(&mut hasher);
+        output_data.stderr.hash(&mut hasher);
         let pub_out_hash = hasher.finish();
 
         let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
@@ -572,8 +596,10 @@ impl<I> STADSfeedback for InfoLeakChecker<I> {
         let expected_finds = self.violation_pub_ins.len() +
             if doubletons > 0 {
                 (singletons * singletons) / (2 * doubletons)
-            } else {
+            } else if singletons > 0 {
                 singletons * (singletons - 1) / 2
+            } else {
+                0
             };
 
         let correctness = singletons as f64 / total_samples as f64;
@@ -610,8 +636,10 @@ impl<I> InfoLeakChecker<I> {
             let expected_finds = self.violation_pub_ins.len() +
                 if doubletons > 0 {
                     (singletons * singletons) / (2 * doubletons)
-                } else {
+                } else if singletons > 0 {
                     singletons * (singletons - 1) / 2
+                } else {
+                    0
                 };
 
             let correctness = singletons as f64 / sample_count as f64;
