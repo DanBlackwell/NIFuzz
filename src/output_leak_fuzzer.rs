@@ -3,10 +3,16 @@
 extern crate alloc;
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData};
+use std::borrow::BorrowMut;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{output_observer::{ObserverWithOutput, OutputObserver}, pub_sec_input::PubSecInput};
+use crate::{
+    output_observer::{ObserverWithOutput, OutputObserver}, 
+    pub_sec_input::PubSecInput, 
+    leak_fuzzer_mutational_stage::LeakQuantifyMetadata, 
+    output_feedback::OutputData
+};
 use crate::hypertest_feedback::HypertestFeedback;
 use crate::leak_fuzzer_state::HasViolations;
 
@@ -43,19 +49,6 @@ pub enum LeakExecuteInputResult {
     Violation,
     /// This input leads to a solution
     Solution,
-}
-
-pub struct OutputData {
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>
-}
-
-impl OutputData {
-    pub fn to_string(&self) -> String {
-        format!("stdout: {:?}, stderr: {:?}", 
-            std::string::String::from_utf8_lossy(&self.stdout),
-            std::string::String::from_utf8_lossy(&self.stderr))
-    }
 }
 
 /// struct storing associated data for a given public input 
@@ -358,7 +351,6 @@ where
         }
 
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
-        drop(observers);
 
         if needs_rerun {
             let output_data = output_data.unwrap();
@@ -387,7 +379,19 @@ where
             }
 
             if !inconsistent {
-                let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, output_data);
+                if state.targeting_violations() {
+                    if let Some(idx) = state.violations().current() {
+                        if let Ok(testcase) = state.violations().get(*idx) {
+                            if let Ok(metadata) = testcase.borrow().metadata::<LeakQuantifyMetadata>() {
+                                if metadata.current_bitflips.len() > 0 {
+                                    self.hypertest_feedback.check_for_bitflip_output(&mut testcase.borrow_mut(), &output_data);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, &output_data);
                 match failing_hypertest {
                     Some((failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
@@ -410,7 +414,25 @@ where
                             let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
                             let t2_trunc = maybe_truncate!(&t2_chars);
                             println!("  test 2 out: {:?}", t2_trunc.into_iter().collect::<String>());
-                            state.violations_mut().add(Testcase::new(input.clone())).unwrap();
+                            // pub struct LeakQuantifyMetadata {
+                            //     /// Reference to the output with no bits flipped
+                            //     pub original_output: OutputData,
+                            //     /// A list of bits that have been flipped for the current input
+                            //     pub current_bitflips: Vec<usize>,
+                            //     /// Flipping the bit at [index] causes 1 bit flip at the output
+                            //     pub bitflip_flips_output_bit: Vec<Option<usize>>,
+                            //     /// set to true if we find that bitflips in input don't map directly to output
+                            //     pub bitflips_do_not_map: bool
+                            // }
+
+                            let mut new_testcase = Testcase::new(input.clone());
+                            new_testcase.add_metadata(LeakQuantifyMetadata {
+                                original_output: output_data,
+                                current_bitflips: vec![],
+                                bitflip_flips_output_bit: vec![],
+                                bitflips_do_not_map: false
+                            });
+                            state.violations_mut().add(new_testcase).unwrap();
                         }
                     },
                     _ => ()

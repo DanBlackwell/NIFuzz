@@ -2,8 +2,8 @@ use hashbrown::HashMap;
 use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
 use libafl_bolts::ErrorBacktrace;
-use libafl::prelude::Input;
-use crate::output_leak_fuzzer::{IOHashValue, OutputData};
+use libafl::{prelude::Input, state::HasMetadata, corpus::Testcase};
+use crate::{output_leak_fuzzer::IOHashValue, leak_fuzzer_mutational_stage::LeakQuantifyMetadata, output_feedback::OutputData};
 use crate::pub_sec_input::PubSecInput;
 use crate::OutputObserver;
 use crate::output_observer::ObserverWithOutput;
@@ -46,7 +46,7 @@ where
     /// Called when an interesting input is confirmed to be deterministic; in some cases this may
     /// return a tuple (FailingHypertest, isNewViolation), or None if this just fixes an entry that was previously stored 
     /// incorrectly (likely due to some oddity in the way the forkserver collects output) 
-    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<(FailingHypertest<'_, I>, bool)>;
+    fn exposes_fault(&mut self, input: &I, output_data: &OutputData) -> Option<(FailingHypertest<'_, I>, bool)>;
 
     /// We already know that this input public part witnesses a violation, here is a uniform sampled secret
     /// input that we can use to calculate the probability of witnessing a particular output
@@ -54,6 +54,10 @@ where
 
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
+
+    /// Check whether flipping this bit in the input causes a corresponding bitflip in the output
+    /// and update testcase metadata to reflect this
+    fn check_for_bitflip_output(&mut self, testcase: &mut Testcase<I>, output_data: &OutputData);
 }
 pub struct STADSstatistics {
     expected_finds: usize,
@@ -211,7 +215,7 @@ where
         (false, None)
     }
 
-    fn exposes_fault(&mut self, input: &I, output_data: OutputData) -> Option<(FailingHypertest<'_, I>, bool)> {
+    fn exposes_fault(&mut self, input: &I, output_data: &OutputData) -> Option<(FailingHypertest<'_, I>, bool)> {
         let hash = |val: &[u8]| {
             let mut hasher = DefaultHasher::new();
             val.hash(&mut hasher);
@@ -247,9 +251,9 @@ where
                         buf.stderr.hash(&mut hasher);
                         hasher.finish() == old_pub_out_hash
                     }) {
-                        hash_val.public_outputs_full[full_pos] = output_data;
+                        hash_val.public_outputs_full[full_pos] = output_data.clone();
                     } else {
-                        hash_val.public_outputs_full.push(output_data);
+                        hash_val.public_outputs_full.push(output_data.clone());
                     }
 
                     if let Some(sec_full_pos) = hash_val.secret_inputs_full.iter()
@@ -294,7 +298,7 @@ where
 
                 hash_val.secret_input_hashes.push(sec_in_hash);
                 hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
-                hash_val.public_outputs_full.push(output_data);
+                hash_val.public_outputs_full.push(output_data.clone());
                 hash_val.public_output_hashes.push(pub_out_hash);
 
                 if !hash_val.public_output_hashes.contains(&pub_out_hash) {
@@ -332,10 +336,10 @@ where
             {
                 let pos = hash_val.public_output_hashes.iter().position(|&x| x == pub_out_hash).unwrap();
                 if pos < hash_val.public_outputs_full.len() {
-                    hash_val.public_outputs_full.insert(pos, output_data);
+                    hash_val.public_outputs_full.insert(pos, output_data.clone());
                     hash_val.secret_inputs_full.insert(pos, input.get_secret_part_bytes().to_vec());
                 } else {
-                    hash_val.public_outputs_full.push(output_data);
+                    hash_val.public_outputs_full.push(output_data.clone());
                     hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
                 }
                 hash_val.secret_input_hashes[pos] = sec_in_hash;
@@ -365,6 +369,85 @@ where
         }
 
         panic!("oops");
+    }
+
+    fn check_for_bitflip_output(&mut self, testcase: &mut Testcase<I>, output_data: &OutputData) {
+        let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+        match metadata.current_bitflips.len() {
+            0 => panic!("There should have been a bit flipped"),
+            1 => {
+                let mut flipped_bit = usize::MAX;
+
+                let mut orig = metadata.original_output.stdout.clone();
+                orig.append(&mut metadata.original_output.stderr.clone());
+
+                let mut new = output_data.stdout.clone();
+                new.append(&mut output_data.stderr.clone());
+                // For each byte in the stdout output
+                'outer: for i in 0..std::cmp::min(new.len(), orig.len()) {
+                    // Check if any bits differ
+                    let diff = new[i] ^ orig[i];
+                    if diff != 0 {
+                        flipped_bit = diff.trailing_zeros() as usize;
+                        break 'outer;
+                    }
+                }
+
+                if flipped_bit != usize::MAX {
+                    println!("bit {} of input flip maps to bit {flipped_bit} of output", flipped_bit);
+                }
+                metadata.bitflip_flips_output_bit.push(
+                    if flipped_bit != usize::MAX { Some(flipped_bit) } else { None }
+                );
+            },
+            _ => {
+                // collect up a list of all the output bits we'd expect to be flipped
+                let mut expected_bitflips = metadata.current_bitflips
+                    .iter()
+                    .flat_map(|&idx| metadata.bitflip_flips_output_bit[idx])
+                    .collect::<Vec<usize>>();
+                expected_bitflips.sort();
+                if expected_bitflips.len() == 0 { panic!(); }
+
+                let mut expected_bitflips_iter = expected_bitflips.iter();
+                let mut next_bitflip_pos;
+                if let Some(next) = expected_bitflips_iter.next() {
+                    next_bitflip_pos = *next;
+                } else {
+                    panic!("No bits were flipped?");
+                }
+
+                let mut orig = metadata.original_output.stdout.clone();
+                orig.append(&mut metadata.original_output.stderr.clone());
+
+                let mut new = output_data.stdout.clone();
+                new.append(&mut output_data.stderr.clone());
+                for i in 0..std::cmp::min(new.len(), orig.len()) {
+                    let diff = new[i] ^ orig[i];
+                    if diff != 0 {
+                        let flipped_output_pos = diff.trailing_zeros();
+                        if flipped_output_pos as usize != next_bitflip_pos {
+                            // if we find an out of place bitflip then bail
+                            println!("Found output bit flipped at {flipped_output_pos}, but only expected bitflips at {:?}",
+                                expected_bitflips);
+                            metadata.bitflips_do_not_map = true;
+                            return;
+                        } else if let Some(next) = expected_bitflips_iter.next() {
+                            // move on to checking for the next expected bitflip
+                            next_bitflip_pos = *next;
+                        } else {
+                            // We checked all the bitflips and they match
+                            return;
+                        }
+                    }
+
+                    if 8 * i > next_bitflip_pos {
+                        metadata.bitflips_do_not_map = true;
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_observer: &OutputObserver) {

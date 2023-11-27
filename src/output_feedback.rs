@@ -19,6 +19,14 @@ pub struct OutputData {
     pub stderr: Vec<u8>
 }
 
+impl OutputData {
+    pub fn to_string(&self) -> String {
+        format!("stdout: {:?}, stderr: {:?}", 
+            std::string::String::from_utf8_lossy(&self.stdout),
+            std::string::String::from_utf8_lossy(&self.stderr))
+    }
+}
+
 /// The state of [`OutputFeedback`]
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct OutputFeedbackMetadata {

@@ -1,6 +1,9 @@
 
 use core::marker::PhantomData;
 
+use serde::{Serialize, Deserialize};
+use libafl_bolts::SerdeAny;
+
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
 use libafl::{
@@ -11,11 +14,11 @@ use libafl::{
     prelude::{mutational::{DEFAULT_MUTATIONAL_MAX_ITERATIONS, MutatedTransform}, UsesInput},
     stages::{Stage, MutationalStage, mutational::MutatedTransformPost},
     start_timer,
-    state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState},
+    state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState, HasMetadata},
     Error,
 };
 use libafl_bolts::rands::Rand;
-use crate::{leak_fuzzer_state::HasViolations, pub_sec_mutations::SecretUniformMutator, pub_sec_input::{PubSecInput, CurrentMutateTarget}};
+use crate::{leak_fuzzer_state::HasViolations, pub_sec_mutations::SecretUniformMutator, pub_sec_input::{PubSecInput, CurrentMutateTarget, PubSecBytesInput}, output_feedback::OutputData};
 
 
 /// Default value, how many iterations each stage gets, as an upper bound.
@@ -29,6 +32,18 @@ pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z> {
     uniform_mutator: SecretUniformMutator,
     #[allow(clippy::type_complexity)]
     phantom: PhantomData<(E, EM, I, Z)>,
+}
+
+#[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
+pub struct LeakQuantifyMetadata {
+    /// Reference to the output with no bits flipped
+    pub original_output: OutputData,
+    /// A list of bits that have been flipped for the current input
+    pub current_bitflips: Vec<usize>,
+    /// Flipping the bit at [index] causes 1 bit flip at the output
+    pub bitflip_flips_output_bit: Vec<Option<usize>>,
+    /// set to true if we find that bitflips in input don't map directly to output
+    pub bitflips_do_not_map: bool
 }
 
 impl<E, EM, I, M, Z> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
@@ -75,26 +90,60 @@ where
             // We'll mutate the secret part of the input by selecting from uniform
             let idx = state.violations().current().unwrap();
             let mut testcase = state.violations().get(idx)?.borrow_mut();
-            let Ok(input) = I::try_transform_from(&mut testcase, state, corpus_idx) else { return Ok(()); };
-            drop(testcase);
 
-            for i in 0..1_000 {
+            let Ok(input) = I::try_transform_from(&mut testcase, state, idx) else { return Ok(()); };
+            let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+            if metadata.bitflip_flips_output_bit.is_empty() {
+                drop(testcase);
+
                 let mut input = input.clone();
+                input.set_current_mutate_target(CurrentMutateTarget::Secret);
 
-                let mutated = self.uniform_mutator.mutate(state, &mut input, i as i32)?;
-                if mutated == MutationResult::Skipped {
-                    panic!("This mutator shouldn't have skipped anything...");
-                }
+                for i in 0..input.get_secret_part_bytes().len() {
+                    let mut input = input.clone();
+
+                    input.set_current_mutate_target(CurrentMutateTarget::Secret);
+                    let buf = input.get_mutable_current_buf_seg();
+                    if i >= 0 {
+                        let byte = (i as usize) / 8;
+                        let bitmask = 1 << (i as usize) % 8;
+                        buf[byte] |= bitmask;
+                    }
                 
-                // Time is measured directly the `evaluate_input` function
-                let (untransformed, post) = input.try_transform_into(state)?;
+                    // Time is measured directly the `evaluate_input` function
+                    let (untransformed, post) = input.try_transform_into(state)?;
 
-                let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
    
-                start_timer!(state);
-                self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-                post.post_exec(state, i as i32, corpus_idx)?;
-                mark_feature_time!(state, PerfFeature::MutatePostExec);
+                    start_timer!(state);
+                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                    post.post_exec(state, i as i32, corpus_idx)?;
+                    mark_feature_time!(state, PerfFeature::MutatePostExec);
+                }
+            } else if !metadata.bitflips_do_not_map {
+                // Try random combos of bitflips to check that they do map as expected
+                println!("Ok, should try random combos now!");
+            } else {
+                drop(testcase);
+
+                for i in 0..1_000 {
+                    let mut input = input.clone();
+    
+                    let mutated = self.uniform_mutator.mutate(state, &mut input, i as i32)?;
+                    if mutated == MutationResult::Skipped {
+                        panic!("This mutator shouldn't have skipped anything...");
+                    }
+                    
+                    // Time is measured directly the `evaluate_input` function
+                    let (untransformed, post) = input.try_transform_into(state)?;
+    
+                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+    
+                    start_timer!(state);
+                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                    post.post_exec(state, i as i32, corpus_idx)?;
+                    mark_feature_time!(state, PerfFeature::MutatePostExec);
+                }
             }
 
             return Ok(());

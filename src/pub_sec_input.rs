@@ -21,7 +21,7 @@ use base64::{Engine, engine::general_purpose};
 #[cfg(feature = "std")]
 use libafl_bolts::{fs::write_file_atomic, Error};
 use libafl_bolts::{ownedref::OwnedSlice, HasLen};
-use libafl::inputs::{BytesInput, HasTargetBytes, Input};
+use libafl::{inputs::{BytesInput, HasTargetBytes, Input}, state::HasMetadata};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum CurrentMutateTarget {
