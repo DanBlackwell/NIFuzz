@@ -3,7 +3,6 @@
 extern crate alloc;
 use hashbrown::HashMap;
 use core::{fmt::Debug, marker::PhantomData};
-use std::borrow::BorrowMut;
 
 use serde::{de::DeserializeOwned, Serialize};
 

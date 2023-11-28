@@ -633,7 +633,7 @@ impl<I> InfoLeakChecker<I> {
         }
 
         if hash_val.uniform_pub_outs_to_sec_ins.len() > 0 {
-            let expected_finds = self.violation_pub_ins.len() +
+            let _expected_finds = self.violation_pub_ins.len() +
                 if doubletons > 0 {
                     (singletons * singletons) / (2 * doubletons)
                 } else if singletons > 0 {
@@ -642,7 +642,7 @@ impl<I> InfoLeakChecker<I> {
                     0
                 };
 
-            let correctness = singletons as f64 / sample_count as f64;
+            let _correctness = singletons as f64 / sample_count as f64;
             // println!("violation: {pub_in}, actual_finds: {}, expected: {expected_finds}, correctness: {correctness}", hash_val.uniform_pub_outs_to_sec_ins.len());
         }
 
