@@ -642,7 +642,9 @@ where
         let pub_in_hash = input.get_public_input_hash();
         let deets = self.dict.get_mut(&pub_in_hash).unwrap();
         if deets.leak_quantify_metadata.is_some() {
-            panic!("LeakQuantifyMetadata already exists for this input!");
+            // It already exists, this can happen when the original input that we only had the 
+            // hash for gets discovered
+            return;
         }
 
         println!("Creating leakquantifymetadata for violation pub_in: {pub_in_hash}");

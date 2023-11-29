@@ -467,7 +467,14 @@ where
                             //     pub bitflips_do_not_map: bool
                             // }
 
-                            let new_testcase = Testcase::new(input.clone());
+                            assert!(failing_hypertest.test_one.0.get_secret_part_bytes().len() > 0 ||
+                                    failing_hypertest.test_two.0.get_secret_part_bytes().len() > 0);
+
+                            let new_testcase = if failing_hypertest.test_one.0.get_secret_part_bytes().is_empty() {
+                                Testcase::new(failing_hypertest.test_two.0)
+                            } else {
+                                Testcase::new(failing_hypertest.test_one.0)
+                            };
                             self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&input, &output_data);
                             state.violations_mut().add(new_testcase).unwrap();
                         }

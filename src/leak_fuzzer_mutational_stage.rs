@@ -304,11 +304,13 @@ where
             }
         }
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        let cur = input.get_mutable_current_buf_seg().to_owned();
+        assert!(input.get_secret_part_bytes() == cur);
+        assert!(cur.len() > 0);
 
         for i in 0..(8 * input.get_secret_part_bytes().len()) {
             let mut input = input.clone();
 
-            input.set_current_mutate_target(CurrentMutateTarget::Secret);
             let buf = input.get_mutable_current_buf_seg();
             let byte = i / 8;
             let bitmask: u8 = 0x80 >> (i % 8);
@@ -331,13 +333,16 @@ where
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
         metadata.current_bitflips.clear();
 
-        // If there's not a single bitflip that maps then set this false
-        metadata.bitflips_do_not_map = metadata.bitflip_flips_output_bit.iter()
+        let mapped_bitlips = metadata.bitflip_flips_output_bit.iter()
             .filter(|&x| x.is_some())
-            .count() == 0;
-        // println!("Tested all bit flips for sec_in: {:?}, and found the following: {:?}", 
-        //     input.get_secret_part_bytes(),
-        //     metadata.bitflip_flips_output_bit.iter().filter(|&x| x.is_some()).map(|&x| x.unwrap()).collect::<Vec<usize>>());
+            .count();
+        match mapped_bitlips {
+            0 => metadata.bitflips_do_not_map = true,
+            // there are no 'random combos' to test...
+            1 => metadata.completed_deterministic_bitflips = true,
+            _ => (),
+        };
+
         Ok(())
     }
 
@@ -396,13 +401,16 @@ where
                 )
             };
 
-            println!("Flipping bits: {:?} in secret of len: {}", bits_to_flip, secret.len());
+            println!("Flipping bits: {:?} (from {} output_mapped_bits) in secret of len: {}", bits_to_flip, output_mapped_bits.len(), secret.len());
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
 
             {
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+                if bits_to_flip.is_empty() {
+                    panic!("supposed to flips {} bits (from possible {:?}), in input of len: {}", bits_to_flip.len(), output_mapped_bits, sec_len_bits);
+                }
                 metadata.current_bitflips = bits_to_flip;
             }
 

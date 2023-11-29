@@ -1,9 +1,7 @@
-FROM rust:1.69.0-bullseye
+FROM rust:1.72.0-bullseye
 SHELL ["/bin/bash", "-c"]
 
 ENV RESULTS_DIR=/home/results
-#ENV RUNTIME=43200
-ENV RUNTIME=300
 
 RUN apt update && apt install -y make clang-13
 RUN alias clang=clang-13; alias clang++=clang++-13
@@ -22,5 +20,8 @@ RUN ./build_all.sh fuzz
 
 RUN mkdir -p /home/results
 COPY benchmarks/fuzz_all.sh /home/benchmarks/
+
+#ENV RUNTIME=43200
+ENV RUNTIME=1200
 
 CMD /home/benchmarks/fuzz_all.sh
