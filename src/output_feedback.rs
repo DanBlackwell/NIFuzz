@@ -1,7 +1,7 @@
 //! The ``OutputFeedback`` uses the program output
 
 use core::fmt;
-use std::{fmt::Debug, marker::PhantomData, io::Error};
+use std::{fmt::Debug, marker::PhantomData, io::Error, collections::hash_map::DefaultHasher, hash::{Hash, Hasher}};
 
 use crate::output_observer::ObserverWithOutput;
 
@@ -24,6 +24,13 @@ impl OutputData {
         format!("stdout: {:?}, stderr: {:?}", 
             std::string::String::from_utf8_lossy(&self.stdout),
             std::string::String::from_utf8_lossy(&self.stderr))
+    }
+
+    pub fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.stdout.hash(&mut hasher);
+        self.stderr.hash(&mut hasher);
+        hasher.finish()
     }
 }
 

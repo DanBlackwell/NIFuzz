@@ -64,7 +64,7 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
     /// Violations corpus
     violations: VC,
     /// Are we targeting violations or corpus currently?
-    targeting_violations: bool,
+    targeting_violations: ViolationsTargetingApproach,
     /// Metadata stored for this state by one of the components
     metadata: SerdeAnyMap,
     /// Metadata stored with names
@@ -83,6 +83,14 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
     phantom: PhantomData<I>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
+pub enum ViolationsTargetingApproach {
+    None,
+    SingleBitFlips,
+    RandomBitFlips,
+    UniformSampling
+}
+
 pub trait HasViolations: UsesInput {
     /// The associated type implementing [`Violations`].
     type Violations: Corpus<Input = <Self as UsesInput>::Input>;
@@ -93,9 +101,9 @@ pub trait HasViolations: UsesInput {
     fn violations_mut(&mut self) -> &mut Self::Violations;
 
     /// Return bool indicating whether we are targeting violations or corpus
-    fn targeting_violations(&self) -> bool;
+    fn targeting_violations(&self) -> ViolationsTargetingApproach;
     /// Set bool indicating whether we are targeting violations or corpus
-    fn set_targeting_violations(&mut self, targeting_violations: bool);
+    fn set_targeting_violations(&mut self, targeting_violations: ViolationsTargetingApproach);
 }
 
 impl<I, C, R, SC, VC> HasLastReportTime for LeakFuzzerState<I, C, R, SC, VC> {
@@ -132,11 +140,11 @@ where
         &mut self.violations
     }
 
-    fn targeting_violations(&self) -> bool {
+    fn targeting_violations(&self) -> ViolationsTargetingApproach {
         self.targeting_violations
     }
 
-    fn set_targeting_violations(&mut self, targeting_violations: bool) {
+    fn set_targeting_violations(&mut self, targeting_violations: ViolationsTargetingApproach) {
         self.targeting_violations = targeting_violations;
     }
 }
@@ -657,7 +665,7 @@ where
             corpus,
             solutions,
             violations,
-            targeting_violations: false,
+            targeting_violations: ViolationsTargetingApproach::None,
             max_size: DEFAULT_MAX_SIZE,
             #[cfg(feature = "introspection")]
             introspection_monitor: ClientPerfMonitor::new(),

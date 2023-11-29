@@ -6,6 +6,7 @@ use core::{
     hash::{BuildHasher, Hasher},
     ops::Range,
 };
+use std::{collections::hash_map::DefaultHasher, hash::Hash};
 #[cfg(feature = "std")]
 use std::{fs::File, io::Read, path::Path};
 
@@ -38,12 +39,15 @@ pub struct PubSecBytesInput {
     current_mutate_target: CurrentMutateTarget
 }
 
-pub trait PubSecInput: HasTargetBytes { // : HasBytesVec {
+pub trait PubSecInput: Input + HasTargetBytes { // : HasBytesVec {
     fn from_pub_sec_bytes(public: &[u8], secret: &[u8]) -> Self;
 
     fn get_public_part_bytes(&self) -> &[u8];
     fn get_secret_part_bytes(&self) -> &[u8];
     fn set_secret_part_bytes(&mut self, new_buf: &[u8]);
+
+    fn get_public_input_hash(&self) -> u64;
+    fn get_secret_input_hash(&self) -> u64;
 
     fn get_current_mutate_target(&self) -> CurrentMutateTarget;
     fn set_current_mutate_target(&mut self, new_target: CurrentMutateTarget);
@@ -90,6 +94,18 @@ impl PubSecInput for PubSecBytesInput {
         self.secret_len = new_buf.len();
         assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+    }
+
+    fn get_public_input_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.get_public_part_bytes().hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn get_secret_input_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.get_secret_part_bytes().hash(&mut hasher);
+        hasher.finish()
     }
 
     fn get_current_mutate_target(&self) -> CurrentMutateTarget {

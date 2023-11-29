@@ -14,7 +14,7 @@ use libafl::{
     Error,
 };
 
-use crate::leak_fuzzer_state::HasViolations;
+use crate::leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach};
 
 /// Feed the fuzzer simply with a random testcase on request
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ where
         if state.corpus().count() == 0 {
             Err(Error::empty("No entries in corpus".to_owned()))
         } else {
-            if state.targeting_violations() {
+            if state.targeting_violations() != ViolationsTargetingApproach::None {
                 let next = random_corpus_id!(state.violations(), state.rand_mut());
                 *state.violations_mut().current_mut() = Some(next);
                 Ok(next)

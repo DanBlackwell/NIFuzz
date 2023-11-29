@@ -8,7 +8,7 @@ use rand::{seq::IteratorRandom, thread_rng};
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
 use libafl::{
-    corpus::{Corpus, CorpusId},
+    corpus::{Corpus, CorpusId, Testcase},
     fuzzer::Evaluator,
     mark_feature_time,
     mutators::{MutationResult, Mutator},
@@ -16,14 +16,14 @@ use libafl::{
     stages::{Stage, MutationalStage, mutational::MutatedTransformPost},
     start_timer,
     state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState, HasMetadata},
-    Error,
+    Error, HasScheduler,
 };
 use libafl_bolts::rands::Rand;
 use crate::{
-    leak_fuzzer_state::HasViolations, 
+    leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
     pub_sec_mutations::SecretUniformMutator, 
     pub_sec_input::{PubSecInput, CurrentMutateTarget}, 
-    output_feedback::OutputData
+    output_feedback::OutputData, output_leak_fuzzer::HasHypertestFeedback, hypertest_feedback::HypertestFeedback
 };
 
 
@@ -33,31 +33,33 @@ use crate::{
 
 /// The default mutational stage
 #[derive(Clone, Debug)]
-pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z> {
+pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF> {
     mutator: M,
     uniform_mutator: SecretUniformMutator,
     #[allow(clippy::type_complexity)]
-    phantom: PhantomData<(E, EM, I, Z)>,
+    phantom: PhantomData<(E, EM, I, Z, HTF)>,
 }
 
-#[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
-pub struct LeakQuantifyMetadata {
-    /// Reference to the output with no bits flipped
-    pub original_output: OutputData,
-    /// A list of bits that have been flipped for the current input
-    pub current_bitflips: Vec<usize>,
-    /// Flipping the bit at [index] causes 1 bit flip at the output
-    pub bitflip_flips_output_bit: Vec<Option<usize>>,
-    /// set to true if we find that bitflips in input don't map directly to output
-    pub bitflips_do_not_map: bool
-}
+// #[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
+// pub struct LeakQuantifyMetadata {
+//     /// Reference to the output with no bits flipped
+//     pub original_output: OutputData,
+//     /// A list of bits that have been flipped for the current input
+//     pub current_bitflips: Vec<usize>,
+//     /// Flipping the bit at [index] causes 1 bit flip at the output
+//     pub bitflip_flips_output_bit: Vec<Option<usize>>,
+//     /// Have we completed the deterministic bit flipping stage
+//     pub completed_deterministic_bitflips: bool,
+//     /// set to true if we find that bitflips in input don't map directly to output
+//     pub bitflips_do_not_map: bool
+// }
 
-impl<E, EM, I, M, Z> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
+impl<E, EM, I, M, Z, HTF> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
-    Z: Evaluator<E, EM>,
+    Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
     Z::State: HasClientPerfMonitor + HasCorpus + HasRand + HasViolations,
     <<Z as UsesState>::State as UsesInput>::Input: PubSecInput,
     I: MutatedTransform<Self::Input, Self::State> + Clone + PubSecInput,
@@ -92,40 +94,46 @@ where
         let num = self.iterations(state, corpus_idx)?;
 
         start_timer!(state);
-        if state.targeting_violations() {
+        if state.targeting_violations() != ViolationsTargetingApproach::None {
             // We'll mutate the secret part of the input by selecting from uniform
             let idx = state.violations().current().unwrap();
             let mut testcase = state.violations().get(idx)?.borrow_mut();
 
             let Ok(input) = I::try_transform_from(&mut testcase, state, idx) else { return Ok(()); };
-            let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
-            if metadata.bitflip_flips_output_bit.is_empty() {
-                drop(testcase);
-                self.leak_test_all_bitflips(fuzzer, executor, state, manager, idx)?;
-            } else if !metadata.bitflips_do_not_map {
-                drop(testcase);
-                self.leak_test_random_bitflip_combos(fuzzer, executor, state, manager, idx)?;
-            } else {
-                drop(testcase);
+            let pub_in_hash = input.get_public_input_hash();
 
-                for i in 0..1_000 {
-                    let mut input = input.clone();
-    
-                    let mutated = self.uniform_mutator.mutate(state, &mut input, i as i32)?;
-                    if mutated == MutationResult::Skipped {
-                        panic!("This mutator shouldn't have skipped anything...");
+            match state.targeting_violations() {
+                ViolationsTargetingApproach::SingleBitFlips => {
+                    drop(testcase);
+                    self.leak_test_all_bitflips(fuzzer, executor, state, manager, idx)?;
+                },
+                ViolationsTargetingApproach::RandomBitFlips => {
+                    drop(testcase);
+                    self.leak_test_all_bitflips(fuzzer, executor, state, manager, idx)?;
+                },
+                ViolationsTargetingApproach::UniformSampling => {
+                    drop(testcase);
+
+                    for i in 0..1_000 {
+                        let mut input = input.clone();
+        
+                        let mutated = self.uniform_mutator.mutate(state, &mut input, i as i32)?;
+                        if mutated == MutationResult::Skipped {
+                            panic!("This mutator shouldn't have skipped anything...");
+                        }
+                        
+                        // Time is measured directly the `evaluate_input` function
+                        let (untransformed, post) = input.try_transform_into(state)?;
+        
+                        let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        
+                        start_timer!(state);
+                        self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                        post.post_exec(state, i as i32, corpus_idx)?;
+                        mark_feature_time!(state, PerfFeature::MutatePostExec);
                     }
-                    
-                    // Time is measured directly the `evaluate_input` function
-                    let (untransformed, post) = input.try_transform_into(state)?;
-    
-                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
-    
-                    start_timer!(state);
-                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-                    post.post_exec(state, i as i32, corpus_idx)?;
-                    mark_feature_time!(state, PerfFeature::MutatePostExec);
-                }
+                },
+                _ => panic!()
             }
 
             return Ok(());
@@ -198,7 +206,7 @@ where
     }
 }
 
-impl<E, EM, I, M, Z> UsesState for LeakFuzzerMutationalStage<E, EM, I, M, Z>
+impl<E, EM, I, M, Z, HTF> UsesState for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -209,12 +217,12 @@ where
     type State = Z::State;
 }
 
-impl<E, EM, I, M, Z> Stage<E, EM, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
+impl<E, EM, I, M, Z, HTF> Stage<E, EM, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
-    Z: Evaluator<E, EM>,
+    Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
     Z::State: HasClientPerfMonitor + HasCorpus + HasRand + HasViolations,
     <<Z as UsesState>::State as UsesInput>::Input: PubSecInput,
     I: MutatedTransform<Self::Input, Self::State> + Clone + PubSecInput,
@@ -238,7 +246,7 @@ where
     }
 }
 
-impl<E, EM, M, Z> LeakFuzzerMutationalStage<E, EM, Z::Input, M, Z>
+impl<E, EM, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, Z::Input, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -252,7 +260,7 @@ where
     }
 }
 
-impl<E, EM, I, M, Z> LeakFuzzerMutationalStage<E, EM, I, M, Z>
+impl<E, EM, I, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -270,15 +278,17 @@ where
     }
 }
 
-impl<E, EM, I, M, Z> LeakFuzzerMutationalStage<E, EM, I, M, Z>
+impl<E, EM, I, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
-    Z: Evaluator<E, EM>,
+    // HTF: HypertestFeedback<I>,
+    Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
     Z::State: HasClientPerfMonitor + HasCorpus + HasRand + HasViolations,
     <<Z as UsesState>::State as UsesInput>::Input: PubSecInput,
-    I: MutatedTransform<<LeakFuzzerMutationalStage<E, EM, I, M, Z> as UsesInput>::Input, <LeakFuzzerMutationalStage<E, EM, I, M, Z> as UsesState>::State> + Clone + PubSecInput,
+    // Z::Input: PubSecInput,
+    I: MutatedTransform<<Self as UsesInput>::Input, <Self as UsesState>::State> + Clone + PubSecInput,
 {
     pub fn leak_test_all_bitflips(
         &mut self,
@@ -289,7 +299,8 @@ where
         violation_idx: CorpusId,
     ) -> Result<(), Error> {
         let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let Ok(input) = I::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
+        let Ok(input) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
+        let pub_in_hash = input.get_public_input_hash();
         let mut input = input.clone();
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
         drop(testcase);
@@ -303,10 +314,8 @@ where
             let bitmask: u8 = 0x80 >> (i % 8);
             buf[byte] ^= bitmask;
 
-            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-            let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
             metadata.current_bitflips = vec![i];
-            drop(testcase);
         
             // Time is measured directly the `evaluate_input` function
             let (untransformed, post) = input.try_transform_into(state)?;
@@ -319,8 +328,7 @@ where
             mark_feature_time!(state, PerfFeature::MutatePostExec);
         }
 
-        let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
         metadata.current_bitflips.clear();
 
         // If there's not a single bitflip that maps then set this false
@@ -339,24 +347,24 @@ where
         violation_idx: CorpusId,
     ) -> Result<(), Error> {
         // Try random combos of bitflips to check that they do map as expected
-        println!("Ok, should try random combos now!");
+        // println!("Ok, should try random combos now!");
 
         let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let Ok(input) = I::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
+        let Ok(input) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
 
-        let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
         let output_mapped_bits = metadata.bitflip_flips_output_bit.iter()
             .enumerate()
             .filter(|(_idx, val)| val.is_some())
             .map(|(idx, _)| idx)
             .collect::<Vec<usize>>();
-        drop(testcase);
         println!("Bits that mapped: {:?}", output_mapped_bits);
 
         let mut input = input.clone();
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        let sec_len_bits = 8 * input.get_secret_part_bytes().len();
 
-        for stage in 0..32 {
+        for stage in 0..sec_len_bits {
             let mut input = input.clone();
             let secret = input.get_mutable_current_buf_seg();
             let mut rand = thread_rng();
@@ -365,26 +373,24 @@ where
                 0 => output_mapped_bits.clone(),
                 1 => output_mapped_bits[0..(output_mapped_bits.len() / 2)].to_owned(),
                 2 => output_mapped_bits[(output_mapped_bits.len() / 2)..].to_owned(),
-                3..=7 => output_mapped_bits.clone().into_iter()
-                            .choose_multiple(&mut rand, output_mapped_bits.len() / 2),
-                8..=15 => output_mapped_bits.clone().into_iter()
-                            .choose_multiple(&mut rand, 
-                                std::cmp::max(3, output_mapped_bits.len() / 4)
-                            ),
-                16..=31 => output_mapped_bits.clone().into_iter()
-                            .choose_multiple(&mut rand, 
-                                std::cmp::max(2, output_mapped_bits.len() / 4)
-                            ),
-                _ => panic!()
+                _ => output_mapped_bits.clone().into_iter().choose_multiple(
+                    &mut rand,
+                    if stage < sec_len_bits / 8 {
+                            3 * output_mapped_bits.len() / 4
+                    } else if stage < sec_len_bits / 4 {
+                            std::cmp::max(4, output_mapped_bits.len() / 2)
+                    } else if stage < sec_len_bits / 2 {
+                            std::cmp::max(3, output_mapped_bits.len() / 4)
+                    } else {
+                            std::cmp::max(2, output_mapped_bits.len() / 8)
+                    }
+                )
             };
 
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
-            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-            let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
             metadata.current_bitflips = bits_to_flip;
-            drop(testcase);
 
             let (untransformed, post) = input.try_transform_into(state)?;
 
@@ -397,9 +403,8 @@ where
             mark_feature_time!(state, PerfFeature::MutatePostExec);
         }
 
-        let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
         metadata.current_bitflips.clear();
+        metadata.completed_deterministic_bitflips = true;
         Ok(())
     }
 }

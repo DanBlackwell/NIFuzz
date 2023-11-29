@@ -1,9 +1,9 @@
 use hashbrown::HashMap;
 use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::{hash_map::DefaultHasher, HashSet}};
-use libafl_bolts::ErrorBacktrace;
-use libafl::{prelude::Input, state::HasMetadata, corpus::Testcase};
-use crate::{output_leak_fuzzer::IOHashValue, leak_fuzzer_mutational_stage::LeakQuantifyMetadata, output_feedback::OutputData};
+use libafl_bolts::{ErrorBacktrace, Error};
+use libafl::{prelude::Input, Error::EmptyOptional};
+use crate::{output_leak_fuzzer::{IOHashValue, LeakQuantifyMetadata}, output_feedback::OutputData, leak_fuzzer_state::ViolationsTargetingApproach};
 use crate::pub_sec_input::PubSecInput;
 use crate::OutputObserver;
 use crate::output_observer::ObserverWithOutput;
@@ -57,7 +57,13 @@ where
 
     /// Check whether flipping this bit in the input causes a corresponding bitflip in the output
     /// and update testcase metadata to reflect this
-    fn check_for_bitflip_output(&mut self, testcase: &mut Testcase<I>, output_data: &OutputData);
+    fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData);
+
+    /// Decide what the next leak searching approach is for a given input
+    fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach;
+
+    /// Get a mutable reference to the LeakQuantifyMetadata for a given input
+    fn get_leak_quantify_metadata_mut(&mut self, input: &I) -> Result<&mut LeakQuantifyMetadata, Error>;
 }
 pub struct STADSstatistics {
     expected_finds: usize,
@@ -94,14 +100,8 @@ where
             // println!("stdout: {:?}", String::from_utf8_lossy(stdout));
         }
 
-        let hash = |val: &[u8]| {
-            let mut hasher = DefaultHasher::new();
-            val.hash(&mut hasher);
-            hasher.finish()
-        };
-
-        let pub_in_hash = hash(input.get_public_part_bytes());
-        let sec_in_hash = hash(input.get_secret_part_bytes());
+        let pub_in_hash = input.get_public_input_hash();
+        let sec_in_hash = input.get_secret_input_hash();
 
         let mut hasher = DefaultHasher::new();
         stdout.hash(&mut hasher);
@@ -208,7 +208,8 @@ where
                 public_output_hashes: vec![pub_out_hash],
                 public_outputs_full: Vec::new(),
                 secret_input_hashes: vec![sec_in_hash],
-                secret_inputs_full: Vec::new()
+                secret_inputs_full: Vec::new(),
+                leak_quantify_metadata: None
             });
         }
 
@@ -222,8 +223,8 @@ where
             hasher.finish()
         };
 
-        let pub_in_hash = hash(input.get_public_part_bytes());
-        let sec_in_hash = hash(input.get_secret_part_bytes());
+        let pub_in_hash = input.get_public_input_hash();
+        let sec_in_hash = input.get_secret_input_hash();
 
         let mut hasher = DefaultHasher::new();
         output_data.stdout.hash(&mut hasher);
@@ -371,8 +372,9 @@ where
         panic!("oops");
     }
 
-    fn check_for_bitflip_output(&mut self, testcase: &mut Testcase<I>, output_data: &OutputData) {
-        let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
+    fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData) {
+        let pub_in_hash = input.get_public_input_hash();
+        let metadata = self.dict.get_mut(&pub_in_hash).unwrap().leak_quantify_metadata.unwrap();
         match metadata.current_bitflips.len() {
             0 => panic!("There should have been a bit flipped"),
             1 => {
@@ -394,7 +396,7 @@ where
                 }
 
                 if flipped_bit != usize::MAX {
-                    println!("bit {} of input flip maps to bit {flipped_bit} of (bit-vector converted) output", metadata.bitflip_flips_output_bit.len());
+                    // println!("bit {} of input flip maps to bit {flipped_bit} of (bit-vector converted) output", metadata.bitflip_flips_output_bit.len());
                     let mut hex = orig.iter()
                         .map(|b| format!("{:02x}", b).to_string())
                         .collect::<Vec<String>>()
@@ -417,7 +419,7 @@ where
                     .flat_map(|&idx| metadata.bitflip_flips_output_bit[idx])
                     .collect::<Vec<usize>>();
                 expected_bitflips.sort();
-                println!("Checking expected bitflips {:?}", expected_bitflips);
+                // println!("Checking expected bitflips {:?}", expected_bitflips);
                 if expected_bitflips.len() == 0 { panic!(); }
 
                 let mut expected_bitflips_iter = expected_bitflips.iter();
@@ -460,12 +462,12 @@ where
                                 metadata.bitflips_do_not_map = true;
                                 return;
                             } else if let Some(next) = expected_bitflips_iter.next() {
-                                println!("Checked bit successfully, moving on to {next}");
+                                // println!("Checked bit successfully, moving on to {next}");
                                 // move on to checking for the next expected bitflip
                                 next_bitflip_pos = *next;
                             } else {
                                 // We checked all the bitflips and they match
-                                println!("Checked all bits and they matched!");
+                                // println!("Checked all bits and they matched!");
                                 return;
                             }
                         }
@@ -489,8 +491,8 @@ where
 
         // println!("Output: {:?}", String::from_utf8_lossy(stdout));
 
-        let pub_in_hash = hash(input.get_public_part_bytes());
-        let sec_in_hash = hash(input.get_secret_part_bytes());
+        let pub_in_hash = input.get_public_input_hash();
+        let sec_in_hash = input.get_secret_input_hash();
 
         let mut hasher = DefaultHasher::new();
         output_data.stdout.hash(&mut hasher);
@@ -576,6 +578,37 @@ where
         println!("violation STADS: {{ expected_finds: {}, correctness: {} }}", stats.expected_finds, stats.correctness);
 
         leaked_info_bits
+    }
+
+    fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach {
+        let pub_in_hash = input.get_public_input_hash();
+        let metadata = self.dict.get(&pub_in_hash).unwrap().leak_quantify_metadata.unwrap();
+        if metadata.bitflip_flips_output_bit.is_empty() {
+            ViolationsTargetingApproach::SingleBitFlips
+        } else if !metadata.bitflips_do_not_map && !metadata.completed_deterministic_bitflips {
+            ViolationsTargetingApproach::RandomBitFlips
+        } else {
+            ViolationsTargetingApproach::UniformSampling
+        }
+    }
+
+    fn get_leak_quantify_metadata_mut(&mut self, input: &I) -> Result<&mut LeakQuantifyMetadata, Error> {
+        let pub_in_hash = input.get_public_input_hash();
+        if let Some(deets) = self.dict.get_mut(&pub_in_hash) {
+            if let Some(meta) = deets.leak_quantify_metadata {
+                Ok(&mut meta)
+            } else {
+                Err(Error::EmptyOptional(
+                    "self.dict.get_mut(&pub_in_hash)?".to_string(), 
+                    ErrorBacktrace::new()
+                ))
+            }
+        } else {
+            Err(Error::EmptyOptional(
+                "self.dict.get_mut(&pub_in_hash)?".to_string(), 
+                ErrorBacktrace::new()
+            ))
+        }
     }
 }
 
