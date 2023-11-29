@@ -402,18 +402,6 @@ where
                     self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data),
                 _ => panic!("unhandled case!")
             };
-
-            // if let Some(idx) = state.violations().current() {
-            //     if let Ok(testcase) = state.violations().get(*idx) {
-            //         let mut testcase = testcase.borrow_mut();
-            //         if let Ok(metadata) = testcase.metadata::<LeakQuantifyMetadata>() {
-            //             if metadata.current_bitflips.len() > 0 {
-            //                 self.hypertest_feedback.check_for_bitflip_output(&mut testcase, &output_data);
-            //                 let metadata = testcase.metadata_mut::<LeakQuantifyMetadata>().unwrap();
-            //             }
-            //         }
-            //     }
-            // }
         }
 
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
@@ -479,7 +467,8 @@ where
                             //     pub bitflips_do_not_map: bool
                             // }
 
-                            let mut new_testcase = Testcase::new(input.clone());
+                            let new_testcase = Testcase::new(input.clone());
+                            self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&input, &output_data);
                             state.violations_mut().add(new_testcase).unwrap();
                         }
                     },
@@ -614,8 +603,25 @@ where
         let should_target_violations = state.violations().count() > 0 && 
             state.rand_mut().below(2) == 1u64;
 
+        // This is set so that the scheduler picks a CorpusId from the correct Corpus (queue or violations)
+        state.set_targeting_violations(if should_target_violations { 
+            ViolationsTargetingApproach::ToBeDecided 
+        } else {
+            ViolationsTargetingApproach::None
+        });
+        
         // Get the next index from the scheduler
         let idx = self.scheduler.next(state)?;
+
+        if should_target_violations {
+            let approach;
+            {
+                let testcase = state.violations_mut().get(idx)?.borrow_mut();
+                let input = testcase.input().as_ref().unwrap();
+                approach = self.hypertest_feedback.get_next_violation_targeting_approach(&input);
+            }
+            state.set_targeting_violations(approach);
+        }
 
         // Mark the elapsed time for the scheduler
         #[cfg(feature = "introspection")]
@@ -646,12 +652,6 @@ where
             } else {
                 state.corpus_mut().get(idx)?.borrow_mut()
             };
-
-            if should_target_violations {
-                let input = testcase.input().unwrap();
-                let approach = self.hypertest_feedback.get_next_violation_targeting_approach(&input);
-                state.set_targeting_violations(approach);
-            }
 
             // let mut testcase = state.testcase_mut(idx)?;
             let scheduled_count = testcase.scheduled_count();

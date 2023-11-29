@@ -167,8 +167,10 @@ impl<N, O, R, S, T> STADSfeedback for StadsMapFeedback<N, O ,R, S, T> {
         let expected_finds = self.path_hash_frequencies.len() +
             if doubletons > 0 {
                 (singletons * singletons) / (2 * doubletons)
-            } else {
+            } else if singletons > 0 {
                 singletons * (singletons - 1) / 2
+            } else {
+                0
             };
 
         let correctness = singletons as f64 / total_samples as f64;

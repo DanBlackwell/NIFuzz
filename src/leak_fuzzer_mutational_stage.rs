@@ -1,21 +1,19 @@
 
 use core::marker::PhantomData;
 
-use serde::{Serialize, Deserialize};
-use libafl_bolts::SerdeAny;
 use rand::{seq::IteratorRandom, thread_rng};
 
 #[cfg(feature = "introspection")]
 use libafl::monitors::PerfFeature;
 use libafl::{
-    corpus::{Corpus, CorpusId, Testcase},
+    corpus::{Corpus, CorpusId},
     fuzzer::Evaluator,
     mark_feature_time,
     mutators::{MutationResult, Mutator},
     prelude::{mutational::{DEFAULT_MUTATIONAL_MAX_ITERATIONS, MutatedTransform}, UsesInput},
     stages::{Stage, MutationalStage, mutational::MutatedTransformPost},
     start_timer,
-    state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState, HasMetadata},
+    state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState},
     Error, HasScheduler,
 };
 use libafl_bolts::rands::Rand;
@@ -23,7 +21,8 @@ use crate::{
     leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
     pub_sec_mutations::SecretUniformMutator, 
     pub_sec_input::{PubSecInput, CurrentMutateTarget}, 
-    output_feedback::OutputData, output_leak_fuzzer::HasHypertestFeedback, hypertest_feedback::HypertestFeedback
+    output_leak_fuzzer::HasHypertestFeedback, 
+    hypertest_feedback::HypertestFeedback
 };
 
 
@@ -33,11 +32,11 @@ use crate::{
 
 /// The default mutational stage
 #[derive(Clone, Debug)]
-pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF> {
+pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z> {
     mutator: M,
     uniform_mutator: SecretUniformMutator,
     #[allow(clippy::type_complexity)]
-    phantom: PhantomData<(E, EM, I, Z, HTF)>,
+    phantom: PhantomData<(E, EM, I, Z)>,
 }
 
 // #[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
@@ -54,7 +53,7 @@ pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF> {
 //     pub bitflips_do_not_map: bool
 // }
 
-impl<E, EM, I, M, Z, HTF> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
+impl<E, EM, I, M, Z> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -100,7 +99,6 @@ where
             let mut testcase = state.violations().get(idx)?.borrow_mut();
 
             let Ok(input) = I::try_transform_from(&mut testcase, state, idx) else { return Ok(()); };
-            let pub_in_hash = input.get_public_input_hash();
 
             match state.targeting_violations() {
                 ViolationsTargetingApproach::SingleBitFlips => {
@@ -109,7 +107,7 @@ where
                 },
                 ViolationsTargetingApproach::RandomBitFlips => {
                     drop(testcase);
-                    self.leak_test_all_bitflips(fuzzer, executor, state, manager, idx)?;
+                    self.leak_test_random_bitflip_combos(fuzzer, executor, state, manager, idx)?;
                 },
                 ViolationsTargetingApproach::UniformSampling => {
                     drop(testcase);
@@ -206,7 +204,7 @@ where
     }
 }
 
-impl<E, EM, I, M, Z, HTF> UsesState for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
+impl<E, EM, I, M, Z> UsesState for LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -217,7 +215,7 @@ where
     type State = Z::State;
 }
 
-impl<E, EM, I, M, Z, HTF> Stage<E, EM, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
+impl<E, EM, I, M, Z> Stage<E, EM, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -246,7 +244,7 @@ where
     }
 }
 
-impl<E, EM, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, Z::Input, M, Z, HTF>
+impl<E, EM, M, Z> LeakFuzzerMutationalStage<E, EM, Z::Input, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -260,7 +258,7 @@ where
     }
 }
 
-impl<E, EM, I, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
+impl<E, EM, I, M, Z> LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
@@ -278,16 +276,14 @@ where
     }
 }
 
-impl<E, EM, I, M, Z, HTF> LeakFuzzerMutationalStage<E, EM, I, M, Z, HTF>
+impl<E, EM, I, M, Z> LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
     E: UsesState<State = Z::State>,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
-    // HTF: HypertestFeedback<I>,
     Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
     Z::State: HasClientPerfMonitor + HasCorpus + HasRand + HasViolations,
     <<Z as UsesState>::State as UsesInput>::Input: PubSecInput,
-    // Z::Input: PubSecInput,
     I: MutatedTransform<<Self as UsesInput>::Input, <Self as UsesState>::State> + Clone + PubSecInput,
 {
     pub fn leak_test_all_bitflips(
@@ -298,12 +294,16 @@ where
         manager: &mut EM,
         violation_idx: CorpusId,
     ) -> Result<(), Error> {
-        let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let Ok(input) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
-        let pub_in_hash = input.get_public_input_hash();
-        let mut input = input.clone();
+        let mut input;
+        {
+            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+            if let Ok(i) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
+                input = i.clone();
+            } else { 
+                return Ok(()); 
+            }
+        }
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
-        drop(testcase);
 
         for i in 0..(8 * input.get_secret_part_bytes().len()) {
             let mut input = input.clone();
@@ -335,6 +335,9 @@ where
         metadata.bitflips_do_not_map = metadata.bitflip_flips_output_bit.iter()
             .filter(|&x| x.is_some())
             .count() == 0;
+        // println!("Tested all bit flips for sec_in: {:?}, and found the following: {:?}", 
+        //     input.get_secret_part_bytes(),
+        //     metadata.bitflip_flips_output_bit.iter().filter(|&x| x.is_some()).map(|&x| x.unwrap()).collect::<Vec<usize>>());
         Ok(())
     }
 
@@ -349,16 +352,22 @@ where
         // Try random combos of bitflips to check that they do map as expected
         // println!("Ok, should try random combos now!");
 
-        let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        let Ok(input) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) else { return Ok(()); };
+        let input;
+        {
+            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+            match Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
+                Ok(i) => input = i,
+                Err(_) => return Ok(()),
+            };
+        }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input)?;
         let output_mapped_bits = metadata.bitflip_flips_output_bit.iter()
             .enumerate()
             .filter(|(_idx, val)| val.is_some())
             .map(|(idx, _)| idx)
             .collect::<Vec<usize>>();
-        println!("Bits that mapped: {:?}", output_mapped_bits);
+        println!("Bits that mapped (in input of len: {}): {:?}", metadata.bitflip_flips_output_bit.len(), output_mapped_bits);
 
         let mut input = input.clone();
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
@@ -378,19 +387,24 @@ where
                     if stage < sec_len_bits / 8 {
                             3 * output_mapped_bits.len() / 4
                     } else if stage < sec_len_bits / 4 {
-                            std::cmp::max(4, output_mapped_bits.len() / 2)
+                            std::cmp::max(std::cmp::min(sec_len_bits, 4), output_mapped_bits.len() / 2)
                     } else if stage < sec_len_bits / 2 {
-                            std::cmp::max(3, output_mapped_bits.len() / 4)
+                            std::cmp::max(std::cmp::min(sec_len_bits, 3), output_mapped_bits.len() / 4)
                     } else {
-                            std::cmp::max(2, output_mapped_bits.len() / 8)
+                            std::cmp::max(std::cmp::min(sec_len_bits, 2), output_mapped_bits.len() / 8)
                     }
                 )
             };
 
+            println!("Flipping bits: {:?} in secret of len: {}", bits_to_flip, secret.len());
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
-            metadata.current_bitflips = bits_to_flip;
+
+            {
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+                metadata.current_bitflips = bits_to_flip;
+            }
 
             let (untransformed, post) = input.try_transform_into(state)?;
 
@@ -403,8 +417,10 @@ where
             mark_feature_time!(state, PerfFeature::MutatePostExec);
         }
 
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
         metadata.current_bitflips.clear();
         metadata.completed_deterministic_bitflips = true;
+        println!("Completed deterministic bitflips for an input!");
         Ok(())
     }
 }

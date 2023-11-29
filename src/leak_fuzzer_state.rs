@@ -86,6 +86,7 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
 #[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
 pub enum ViolationsTargetingApproach {
     None,
+    ToBeDecided,
     SingleBitFlips,
     RandomBitFlips,
     UniformSampling
