@@ -11,17 +11,25 @@
   void (*__real_free)(void *);
   void* (*__real_realloc)(void *, size_t);
 #else
-  extern void *malloc(size_t);
   extern void *__real_malloc(size_t);
   extern void __real_free(void *);
   extern void *__real_realloc(void *, size_t);
 #endif
 
-uint64_t repeatedVal = 0;
+const uint8_t *memFillBuf;
+uint32_t memFillLen;
+// Use this to keep the fills as contiguous copies of the buffer
+uint32_t memFillBufPos;
+
 int memWrapEnabled = 0;
 
-void initRepeatedVal() {
-  repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand();
+uint8_t *__stack_top;
+uint8_t *__cur_addr;
+uint64_t __cur_buf_pos;
+
+void initMemFillBuf(const uint8_t *buf, const uint32_t len) {
+  memFillBuf = buf;
+  memFillLen = len;
 }
 
 void enableMemWrap() {
@@ -41,18 +49,24 @@ void *__wrap_malloc(size_t bytes) {
 
   if (!memWrapEnabled) return __real_malloc(bytes);
 
-  size_t adjusted_bytes = bytes + 32; // Add some extra bytes padding
-  uint64_t *raw = (uint64_t *)__real_malloc(adjusted_bytes);
+  size_t adjustedBytes = bytes + 32; // Add some extra bytes padding
+  uint8_t *raw = (uint8_t *)__real_malloc(adjustedBytes);
 
-  uint64_t reps = adjusted_bytes / sizeof(repeatedVal);
-  for (size_t i = 0; i < reps; i++) {
-    raw[i] = repeatedVal;
-  }
-  for (size_t i = 0; i < adjusted_bytes % sizeof(repeatedVal); i++) {
-    ((uint8_t *)(raw + reps))[i] = repeatedVal >> (8 * i) & 0xFF;
+  for (size_t i = 0; i < adjustedBytes; i += memFillLen) {
+    uint32_t bufRemaining = memFillLen - memFillBufPos;
+
+    // if we have more bytes remaining in buf than we need to fill
+    if (adjustedBytes - i < bufRemaining) {
+      uint32_t copyLen = bufRemaining - (adjustedBytes - i);
+      memcpy(raw + i, memFillBuf + memFillBufPos, copyLen);
+      memFillBufPos += copyLen;
+    } else {
+      memcpy(raw + i, memFillBuf + memFillBufPos, bufRemaining);
+      memFillBufPos = 0;
+    }
   }
 
-  return (void *)(raw + 2);
+  return (void *)(raw + 16);
 }
 
 void __wrap_free(void *ptr) {
@@ -66,7 +80,7 @@ void __wrap_free(void *ptr) {
     __real_free(ptr);
     return;
   }
-  __real_free(((uint64_t *)ptr) - 2);
+  __real_free(((uint8_t *)ptr) - 16);
 }
 
 void *__wrap_realloc(void *ptr, size_t new_size) {
@@ -126,18 +140,3 @@ void *get_min_stack_bottom() {
   getrlimit (RLIMIT_STACK, &limit);
   return (char *)min - limit.rlim_cur;
 }
-
-void fill_stack() {
-  uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom();
-  if (!repeatedVal)
-    initRepeatedVal();
-  volatile uint64_t *stack_loc; stack_loc = (void *)(&stack_loc - 1);
-
-  for (; stack_loc > __stack_bottom; stack_loc--) {
-    *stack_loc = repeatedVal;
-  }
-
-  stack_loc = (uint64_t *)repeatedVal;
-  __stack_bottom = (uint64_t *)repeatedVal;
-}
-

@@ -38,14 +38,9 @@ int main(int argc, char **argv)
 	int peer = *(int *)(public_in + sizeof(a_sock));
 
     // handle SECRET
-
-    uint32_t seed = 0;
-	for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
-		seed |= secret_in[i] << 8 * i;
-	}
-
-	SEED_MEMORY(seed);
-	FILL_STACK();
+    initMemFillBuf(secret_in, secret_len);
+    enableMemWrap();
+    FILL_STACK(secret_in, secret_len);
 
 	// printf("stack: ");
 	// for (int i = 0; i < 300; i++) printf("%hhX", *(((char *)&seed) - i));

@@ -2,16 +2,18 @@
 #define MEMORY_INFO_LEAKAGE_H
 
 #include <stddef.h>
+#include <stdint.h>
 
-#define SEED_MEMORY(seed) { srand(seed); enableMemWrap(); initRepeatedVal(); }
-
-void initRepeatedVal(void);
+void initMemFillBuf(const uint8_t *buf, const uint32_t len);
 void enableMemWrap(void);
 void disableMemWrap(void);
-void *__wrap_malloc(size_t);
 void *get_stack_top(void);
 void *get_cur_stack_bottom(void);
 void *get_min_stack_bottom(void);
+
+extern uint8_t *__stack_top;
+extern uint8_t *__cur_addr;
+extern uint64_t __cur_buf_pos;
 
 // void fill_stack(void);
 
@@ -26,18 +28,18 @@ void *get_min_stack_bottom(void);
     )
 #endif 
 
-#define FILL_STACK() { \
-  uint64_t *__stack_bottom = (uint64_t *)get_cur_stack_bottom(); \
-  uint64_t repeatedVal = (uint64_t)rand() << 48 | (uint64_t)rand() << 32 | (uint64_t)rand() << 16 | (uint64_t)rand(); \
-  volatile uint64_t *stack_loc; \
-  GET_SP(stack_loc); \
+#define FILL_STACK(buf, len) { \
+  if (!len) { return 1; } \
+  __cur_addr = (uint8_t *)get_cur_stack_bottom() + 1; \
+  __cur_buf_pos = 0; \
+  GET_SP(__stack_top); \
  \
   do { \
-    *stack_loc = repeatedVal; \
-  } while (stack_loc-- > __stack_bottom + 1); \
- \
-  stack_loc = (uint64_t *)repeatedVal; \
-  __stack_bottom = (uint64_t *)repeatedVal; \
+    *__cur_addr = buf[__cur_buf_pos]; \
+    __cur_addr++; \
+    __cur_buf_pos++; \
+    if (__cur_buf_pos >= len) __cur_buf_pos = 0; \
+  } while (__cur_addr < __stack_top); \
 }
 
 
