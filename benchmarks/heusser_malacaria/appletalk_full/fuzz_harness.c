@@ -15,36 +15,32 @@ int main(int argc, char **argv)
 {
 	__AFL_INIT();
 	
-	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
 
 	// unsigned char *Data; int Size;
-	uint32_t public_len = *(unsigned int *)Data;
-	uint32_t secret_len = Size - public_len - sizeof(public_len);
-	const uint8_t *public_in = Data + sizeof(public_len);
-	const uint8_t *secret_in = public_in + public_len;
+	static uint32_t public_len = *(unsigned int *)Data;
+	static uint32_t secret_len = Size - public_len - sizeof(public_len);
+	static const uint8_t *public_in = Data + sizeof(public_len);
+	static const uint8_t *secret_in = public_in + public_len;
 
     // handle PUBLIC
 
 	if (public_len < sizeof(struct atalk_sock) + sizeof(int)) return 1;
 
-	struct socket sock = {0};
-	struct atalk_sock a_sock = {0};
+	static struct socket sock = {0};
+	static struct atalk_sock a_sock = {0};
 	memcpy(&a_sock, public_in, sizeof(a_sock));
 	sock.sk = (struct sock *)&a_sock;
 
-	struct sockaddr uaddr = {0};
-	int uaddr_len;
-	int peer = *(int *)(public_in + sizeof(a_sock));
+	static struct sockaddr uaddr = {0};
+	static int uaddr_len;
+	static int peer = *(int *)(public_in + sizeof(a_sock));
 
     // handle SECRET
     initMemFillBuf(secret_in, secret_len);
     enableMemWrap();
     FILL_STACK(secret_in, secret_len);
-
-	// printf("stack: ");
-	// for (int i = 0; i < 300; i++) printf("%hhX", *(((char *)&seed) - i));
-	// printf(". ");
 
     // execute the function
 

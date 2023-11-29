@@ -1388,24 +1388,21 @@ int main(int argc, char **argv)
 {
 	__AFL_INIT();
 	
-	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
 	
 
 	// char *Data; uint32_t Size;
-	uint32_t public_len = *(unsigned int *)Data;
-	uint32_t secret_len = Size - public_len - sizeof(public_len);
-	const uint8_t *public_in = Data + sizeof(public_len);
-	const uint8_t *secret_in = public_in + public_len;
+	static uint32_t public_len = *(unsigned int *)Data;
+	static uint32_t secret_len = Size - public_len - sizeof(public_len);
+	static const uint8_t *public_in = Data + sizeof(public_len);
+	static const uint8_t *secret_in = public_in + public_len;
 	
-	uint32_t seed = 0;
-	for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
-		seed |= secret_in[i] << 8 * i;
-	}
+	// handle SECRET
+	initMemFillBuf(secret_in, secret_len);
+	enableMemWrap();
 
-	SEED_MEMORY(seed);
-
-	struct sk_buff skb = {0};
+	static struct sk_buff skb = {0};
         skb.data = malloc(1024 * 1024);
         skb.head = skb.data;
         skb.end = 1024 * 1024;
@@ -1413,15 +1410,15 @@ int main(int argc, char **argv)
         skb.data_len = 0; // only for nonlinear
         skb.len = 0;
 
-        struct net_device nd = { .ifindex = 0 };
-        struct netdev_queue nd_q = { .dev = &nd };
-        struct Qdisc qdisc = { .dev_queue = &nd_q };
-	struct tcf_proto_ops ops = { .dump = basic_dump };
-	struct tcf_proto tp = { .ops = &ops, .q = &qdisc };
+        static struct net_device nd = { .ifindex = 0 };
+        static struct netdev_queue nd_q = { .dev = &nd };
+        static struct Qdisc qdisc = { .dev_queue = &nd_q };
+	static struct tcf_proto_ops ops = { .dump = basic_dump };
+	static struct tcf_proto tp = { .ops = &ops, .q = &qdisc };
 
-        int pos = 0;
+        static int pos = 0;
 
-#define DEFINE_AND_DECODE(type, var) type var = *(type *)public_in + pos; pos += sizeof(type); if (pos > public_len) return 1;
+#define DEFINE_AND_DECODE(type, var) static type var = *(type *)public_in + pos; pos += sizeof(type); if (pos > public_len) return 1;
         DEFINE_AND_DECODE(unsigned long, fh);
         DEFINE_AND_DECODE(u32, pid);
         DEFINE_AND_DECODE(u32, seq);
@@ -1443,12 +1440,13 @@ int main(int argc, char **argv)
         // for (int i = 0; i < 20; i++) printf("%hhX", skb.data[i]);
         // printf("\n");
 
-	FILL_STACK();
+	FILL_STACK(secret_in, secret_len);
 
-	int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
+	static int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
         if (res < 0) return 1;
 
-        for (int i = 0; i < skb.len; i++) {
+	static int i;
+        for (i = 0; i < skb.len; i++) {
                 printf("%hhx", skb.data[i]);
         }
         printf("\n");

@@ -115,47 +115,43 @@ int main(int argc, char **argv)
 {
 	__AFL_INIT();
 	
-	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
 	
 
 	// char *Data; uint32_t Size;
-	uint32_t public_len = *(unsigned int *)Data;
-	uint32_t secret_len = Size - public_len - sizeof(public_len);
-	const uint8_t *public_in = Data + sizeof(public_len);
-	const uint8_t *secret_in = public_in + public_len;
+	static uint32_t public_len = *(unsigned int *)Data;
+	static uint32_t secret_len = Size - public_len - sizeof(public_len);
+	static const uint8_t *public_in = Data + sizeof(public_len);
+	static const uint8_t *secret_in = public_in + public_len;
 
   // handle SECRET
-  
-  uint32_t seed = 0;
-  for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
-    seed |= secret_in[i] << 8 * i;
-  }
-  
-  SEED_MEMORY(seed);
+
+  initMemFillBuf(secret_in, secret_len);
+  enableMemWrap();
   
   // handle PUBLIC
   
-  size_t nbytes = 0;
-  loff_t ppos = 0;
+  static size_t nbytes = 0;
+  static loff_t ppos = 0;
   if (public_len < sizeof(nbytes) + sizeof(ppos) + 4) {
     return 1;
   }
   
-  int pos = 0;
+  static int pos = 0;
   nbytes = *(size_t *)public_in; 
   pos += sizeof(nbytes);
   ppos = *(loff_t *)(public_in + pos);
   pos += sizeof(ppos);
   
-  int bufsz = public_len - pos;
-  struct ctr_struct internal_structure = { .bufsz = bufsz, .buf = malloc(bufsz) };
+  static int bufsz = public_len - pos;
+  static struct ctr_struct internal_structure = { .bufsz = bufsz, .buf = malloc(bufsz) };
   memcpy(internal_structure.buf, public_in, bufsz);
-  struct file the_file = { .private_data = (void *)&internal_structure };
+  static struct file the_file = { .private_data = (void *)&internal_structure };
   
   // execute the function
   
-  FILL_STACK();
+  FILL_STACK(secret_in, secret_len);
   cpuset_tasks_read(&the_file, NULL, nbytes, &ppos);
   
   return 0;

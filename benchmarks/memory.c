@@ -51,16 +51,19 @@ void *__wrap_malloc(size_t bytes) {
 
   size_t adjustedBytes = bytes + 32; // Add some extra bytes padding
   uint8_t *raw = (uint8_t *)__real_malloc(adjustedBytes);
+  printf("malloced %u bytes at %p\n", adjustedBytes, raw);
 
   for (size_t i = 0; i < adjustedBytes; i += memFillLen) {
     uint32_t bufRemaining = memFillLen - memFillBufPos;
 
     // if we have more bytes remaining in buf than we need to fill
     if (adjustedBytes - i < bufRemaining) {
-      uint32_t copyLen = bufRemaining - (adjustedBytes - i);
+      uint32_t copyLen = adjustedBytes - i;
+      printf("adjustedBytes = %u, i = %u, filling %u bytes from %p\n", adjustedBytes, i, copyLen, raw + i);
       memcpy(raw + i, memFillBuf + memFillBufPos, copyLen);
       memFillBufPos += copyLen;
     } else {
+      printf("filling %u bytes from %p\n", bufRemaining, raw + i);
       memcpy(raw + i, memFillBuf + memFillBufPos, bufRemaining);
       memFillBufPos = 0;
     }

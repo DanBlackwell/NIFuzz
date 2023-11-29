@@ -135,46 +135,42 @@ int main(int argc, char **argv)
 {
 	__AFL_INIT();
 	
-	unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
+	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
+	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
 
 	// char *Data; uint32_t Size;
-	uint32_t public_len = *(unsigned int *)Data;
-	uint32_t secret_len = Size - public_len - sizeof(public_len);
-	const uint8_t *public_in = Data + sizeof(public_len);
-	const uint8_t *secret_in = public_in + public_len;
+	static uint32_t public_len = *(unsigned int *)Data;
+	static uint32_t secret_len = Size - public_len - sizeof(public_len);
+	static const uint8_t *public_in = Data + sizeof(public_len);
+	static const uint8_t *secret_in = public_in + public_len;
 
     // handle SECRET
 
-    uint32_t seed = 0;
-	for (int i = 0; i < (secret_len < 4 ? secret_len : 4); i++) {
-		seed |= secret_in[i] << 8 * i;
-	}
-
-	SEED_MEMORY(seed);
+    initMemFillBuf(secret_in, secret_len);
+    enableMemWrap();
 
     // handle PUBLIC
 
-	stack_t uss = {0};
+	static stack_t uss = {0};
 	if (public_len < sizeof(uss.ss_flags)) {
 		return 1;
 	}
 
-	int pos = 0;
+	static int pos = 0;
 	uss.ss_flags = *(int *)public_in;
 	pos += sizeof(uss.ss_flags);
 	uss.ss_size = public_len - pos;
 	// just be safe and make a copy of public_in in case we overwrite the shared mem somehow
-	uint8_t *stack = malloc(public_len - pos);
+	static uint8_t *stack = malloc(public_len - pos);
 	memcpy(stack, public_in + pos, public_len - pos);
 	uss.ss_sp = stack;
 
-	stack_t uoss = {0};
+	static stack_t uoss = {0};
 
 	current->sas_ss_sp = &uoss;
 	current->sas_ss_size = 1024;
 
-	FILL_STACK();
+    FILL_STACK(secret_in, secret_len);
 
     // execute the function
 
