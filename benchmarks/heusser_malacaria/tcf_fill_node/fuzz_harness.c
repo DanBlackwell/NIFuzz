@@ -1384,22 +1384,17 @@ nla_put_failure:
 
 __AFL_FUZZ_INIT();
 
+unsigned long fh;
+u32 pid, seq;
+u16 flags;
+int event, ifindex;
+
 int main(int argc, char **argv) 
 {
 	__AFL_INIT();
 	
-	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
-	
-
-	// char *Data; uint32_t Size;
-	static uint32_t public_len = *(unsigned int *)Data;
-	static uint32_t secret_len = Size - public_len - sizeof(public_len);
-	static const uint8_t *public_in = Data + sizeof(public_len);
-	static const uint8_t *secret_in = public_in + public_len;
-	
 	// handle SECRET
-	initMemFillBuf(secret_in, secret_len);
+	initMemFillBuf(SECRET_IN, SECRET_LEN);
 	enableMemWrap();
 
 	static struct sk_buff skb = {0};
@@ -1418,21 +1413,21 @@ int main(int argc, char **argv)
 
         static int pos = 0;
 
-#define DEFINE_AND_DECODE(type, var) static type var = *(type *)public_in + pos; pos += sizeof(type); if (pos > public_len) return 1;
-        DEFINE_AND_DECODE(unsigned long, fh);
-        DEFINE_AND_DECODE(u32, pid);
-        DEFINE_AND_DECODE(u32, seq);
-        DEFINE_AND_DECODE(u16, flags);
-        DEFINE_AND_DECODE(int, event);
+#define DECODE(type, var) var = *(type *)PUBLIC_IN + pos; pos += sizeof(type); if (pos > PUBLIC_LEN) return 1;
+        DECODE(unsigned long, fh);
+        DECODE(u32, pid);
+        DECODE(u32, seq);
+        DECODE(u16, flags);
+        DECODE(int, event);
 
-        DEFINE_AND_DECODE(int, ifindex);
+        DECODE(int, ifindex);
         nd.ifindex = ifindex;
 
         if (public_len - pos > 16) {
-                memcpy(ops.kind, public_in + pos, 15);
+                memcpy(ops.kind, PUBLIC_IN + pos, 15);
                 ops.kind[15] = 0;
         } else {
-                memcpy(ops.kind, public_in + pos, public_len - pos);
+                memcpy(ops.kind, public_in + pos, PUBLIC_LEN - pos);
                 ops.kind[public_len - pos] = 0;
         }
 
@@ -1440,12 +1435,13 @@ int main(int argc, char **argv)
         // for (int i = 0; i < 20; i++) printf("%hhX", skb.data[i]);
         // printf("\n");
 
-	FILL_STACK(secret_in, secret_len);
+	FILL_STACK(SECRET_IN, SECRET_LEN);
 
-	static int res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
+	      static int res;
+        res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
         if (res < 0) return 1;
 
-	static int i;
+	      static int i;
         for (i = 0; i < skb.len; i++) {
                 printf("%hhx", skb.data[i]);
         }

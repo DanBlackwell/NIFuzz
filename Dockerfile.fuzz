@@ -21,7 +21,7 @@ RUN ./build_all.sh fuzz
 RUN mkdir -p /home/results
 COPY benchmarks/fuzz_all.sh /home/benchmarks/
 
-#ENV RUNTIME=43200
+# ENV RUNTIME=43200
 ENV RUNTIME=300
 
 CMD /home/benchmarks/fuzz_all.sh

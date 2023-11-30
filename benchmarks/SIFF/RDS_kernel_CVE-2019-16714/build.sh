@@ -7,7 +7,7 @@ if [[ "$1" == "fuzz" ]]; then
     cargo build --release
   popd
   
-  CFLAGS="-Wl,--wrap=malloc -Wl,--wrap=free -Wl,--wrap=realloc -Werror -Wall"
+  CFLAGS="-Wl,--wrap=malloc -Wl,--wrap=free -Wl,--wrap=realloc -Wall"
   
   gcc -O3 -c ../../memory.c -o m.o
   

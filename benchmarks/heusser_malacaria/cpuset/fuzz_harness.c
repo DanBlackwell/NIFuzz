@@ -111,47 +111,41 @@ static ssize_t cpuset_tasks_read(struct file *file, char /*__user*/ *buf,
 
 __AFL_FUZZ_INIT();
 
+int bufsz;
+
 int main(int argc, char **argv) 
 {
 	__AFL_INIT();
 	
-	static unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-	static int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
-	
-
-	// char *Data; uint32_t Size;
-	static uint32_t public_len = *(unsigned int *)Data;
-	static uint32_t secret_len = Size - public_len - sizeof(public_len);
-	static const uint8_t *public_in = Data + sizeof(public_len);
-	static const uint8_t *secret_in = public_in + public_len;
-
   // handle SECRET
 
-  initMemFillBuf(secret_in, secret_len);
+  initMemFillBuf(SECRET_IN, SECRET_LEN);
   enableMemWrap();
   
   // handle PUBLIC
   
   static size_t nbytes = 0;
   static loff_t ppos = 0;
-  if (public_len < sizeof(nbytes) + sizeof(ppos) + 4) {
+  if (PUBLIC_LEN < sizeof(nbytes) + sizeof(ppos) + 4) {
     return 1;
   }
   
   static int pos = 0;
-  nbytes = *(size_t *)public_in; 
+  nbytes = *(size_t *)PUBLIC_IN; 
   pos += sizeof(nbytes);
-  ppos = *(loff_t *)(public_in + pos);
+  ppos = *(loff_t *)(PUBLIC_IN + pos);
   pos += sizeof(ppos);
   
-  static int bufsz = public_len - pos;
-  static struct ctr_struct internal_structure = { .bufsz = bufsz, .buf = malloc(bufsz) };
+  bufsz = PUBLIC_LEN - pos;
+  static struct ctr_struct internal_structure = {}; 
+  internal_structure.bufsz = bufsz;
+  internal_structure.buf = malloc(bufsz);
   memcpy(internal_structure.buf, public_in, bufsz);
   static struct file the_file = { .private_data = (void *)&internal_structure };
   
   // execute the function
   
-  FILL_STACK(secret_in, secret_len);
+  FILL_STACK(SECRET_IN, SECRET_LEN);
   cpuset_tasks_read(&the_file, NULL, nbytes, &ppos);
   
   return 0;
