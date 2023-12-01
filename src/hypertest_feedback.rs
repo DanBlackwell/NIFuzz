@@ -500,7 +500,7 @@ where
                     .flat_map(|&idx| metadata.bitflip_flips_output_bits[idx].to_owned())
                     .collect::<Vec<usize>>();
                 expected_bitflips.sort();
-                // println!("Checking expected bitflips {:?}", expected_bitflips);
+                println!("Checking expected bitflips {:?}", expected_bitflips);
                 if expected_bitflips.len() == 0 { panic!(); }
 
                 let mut expected_bitflips_iter = expected_bitflips.iter();
@@ -516,17 +516,22 @@ where
 
                 let mut new = output_data.stdout.clone();
                 new.append(&mut output_data.stderr.clone());
+                println!("new:  {:?}\norig: {:?}", new, orig);
                 for i in 0..std::cmp::min(new.len(), orig.len()) {
                     let diff = new[i] ^ orig[i];
+                    println!("diff at bit {i}: {:02x} ({} vs {})", diff, orig[i], new[i]);
                     if diff != 0 {
                         // get a list of the bits that were flipped in this new output
                         let flipped_bits = (0..8).into_iter()
                             .filter(|&bit| diff & (0x80 >> bit) != 0)
                             .collect::<Vec<usize>>();
 
+                        println!("Checking flipped_bits: {:?}", flipped_bits);
+                        println!("Against expected_bits: {:?}", expected_bitflips);
                         for bit in flipped_bits {
                             let flipped_output_pos = 8 * i + bit;
                             if metadata.ignored_output_bitflips.contains(&flipped_output_pos) {
+                                println!("Skipping ignored bitflip {flipped_output_pos}");
                                 // skip ignored bitflips!
                                 continue;
                             }
@@ -548,18 +553,19 @@ where
                                 metadata.bitflips_do_not_map = true;
                                 return;
                             } else if let Some(next) = expected_bitflips_iter.next() {
-                                // println!("Checked bit successfully, moving on to {next}");
+                                println!("Checked bit successfully, moving on to {next}");
                                 // move on to checking for the next expected bitflip
                                 next_bitflip_pos = *next;
                             } else {
                                 // We checked all the bitflips and they match
-                                // println!("Checked all bits and they matched!");
+                                println!("Checked all bits and they matched!");
                                 return;
                             }
                         }
                     }
 
                     if 8 * i > next_bitflip_pos {
+                        println!("Bailing as 8 * {i} > next_bitflip_pos {next_bitflip_pos}");
                         metadata.bitflips_do_not_map = true;
                         return;
                     }

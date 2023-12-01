@@ -369,6 +369,7 @@ where
             metadata.bitflip_flips_output_bits = filtered;
         }
 
+        println!("Removing dupes: {:?}, resulting map: {:?}", dupes, metadata.bitflip_flips_output_bits);
         metadata.ignored_output_bitflips = dupes;
 
         match mapped_bitflips {
@@ -437,9 +438,11 @@ where
             };
 
             println!("Flipping bits: {:?} (from {} output_mapped_bits) in secret of len: {}", bits_to_flip, output_mapped_bits.len(), secret.len());
+            println!("secret was: {:?}", secret);
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
+            println!("secret now: {:?}", secret);
 
             {
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
