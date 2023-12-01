@@ -1,6 +1,7 @@
 
 use core::marker::PhantomData;
 
+use hashbrown::HashSet;
 use rand::{seq::IteratorRandom, thread_rng};
 
 #[cfg(feature = "introspection")]
@@ -335,10 +336,42 @@ where
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
         metadata.current_bitflips.clear();
 
-        let mapped_bitlips = metadata.bitflip_flips_output_bit.iter()
-            .filter(|&x| x.is_some())
-            .count();
-        match mapped_bitlips {
+        let mut seen_output_flips = HashSet::new();
+        let mut dupes = HashSet::new();
+        for flip_map in &metadata.bitflip_flips_output_bits {
+            for out_flip in flip_map {
+                if !seen_output_flips.insert(*out_flip) {
+                    dupes.insert(*out_flip);
+                }
+            }
+        }
+
+        let mut mapped_bitflips = 0;
+        if dupes.is_empty() {
+            // no need to filter out the dupes (it's empty)
+            mapped_bitflips = metadata.bitflip_flips_output_bits.iter()
+                .filter(|flips| !flips.is_empty())
+                .count();
+        } else {
+            // Filter out all the dupes so we don't get caught out later!
+            let mut filtered = vec![];
+            for bitflip_map in &metadata.bitflip_flips_output_bits {
+                // filter out any bits that get affected by many input bits
+                let temp = bitflip_map.iter()
+                    .filter(|&x| !dupes.contains(x))
+                    .map(|&x| x)
+                    .collect::<Vec<usize>>();
+
+                if !temp.is_empty() { mapped_bitflips += 1; }
+
+                filtered.push(temp);
+            }
+            metadata.bitflip_flips_output_bits = filtered;
+        }
+
+        metadata.ignored_output_bitflips = dupes;
+
+        match mapped_bitflips {
             0 => metadata.bitflips_do_not_map = true,
             // there are no 'random combos' to test...
             1 => metadata.completed_deterministic_bitflips = true,
@@ -369,12 +402,12 @@ where
         }
 
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input)?;
-        let output_mapped_bits = metadata.bitflip_flips_output_bit.iter()
+        let output_mapped_bits = metadata.bitflip_flips_output_bits.iter()
             .enumerate()
-            .filter(|(_idx, val)| val.is_some())
+            .filter(|(_idx, val)| !val.is_empty())
             .map(|(idx, _)| idx)
             .collect::<Vec<usize>>();
-        println!("Bits that mapped (in input of len: {}): {:?}", metadata.bitflip_flips_output_bit.len(), output_mapped_bits);
+        println!("Bits that mapped (in input of len: {}): {:?}", metadata.bitflip_flips_output_bits.len(), output_mapped_bits);
 
         let mut input = input.clone();
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
