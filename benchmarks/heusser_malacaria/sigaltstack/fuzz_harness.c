@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
@@ -41,11 +42,8 @@ static inline int sas_ss_flags(unsigned long sp)
 
 int copy_to_user(void *user_dest, void *kernel_buf, size_t size)
 {
-	for (size_t i = 0; i < size; i++) {
-		printf("%hhx", ((char *)kernel_buf)[i]);
-	}
-	printf("\n");
-
+  write(1, kernel_buf, size);
+  putc('\n', stdout);
 	return 0;
 }
 

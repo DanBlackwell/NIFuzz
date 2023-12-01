@@ -314,7 +314,9 @@ where
             let buf = input.get_mutable_current_buf_seg();
             let byte = i / 8;
             let bitmask: u8 = 0x80 >> (i % 8);
+            println!("Before flip: {:?}", buf);
             buf[byte] ^= bitmask;
+            println!("Before flip: {:?}", buf);
 
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
             metadata.current_bitflips = vec![i];

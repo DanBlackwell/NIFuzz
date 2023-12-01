@@ -456,26 +456,19 @@ where
                             let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
                             let t2_trunc = maybe_truncate!(&t2_chars);
                             println!("  test 2 out: {:?}", t2_trunc.into_iter().collect::<String>());
-                            // pub struct LeakQuantifyMetadata {
-                            //     /// Reference to the output with no bits flipped
-                            //     pub original_output: OutputData,
-                            //     /// A list of bits that have been flipped for the current input
-                            //     pub current_bitflips: Vec<usize>,
-                            //     /// Flipping the bit at [index] causes 1 bit flip at the output
-                            //     pub bitflip_flips_output_bit: Vec<Option<usize>>,
-                            //     /// set to true if we find that bitflips in input don't map directly to output
-                            //     pub bitflips_do_not_map: bool
-                            // }
 
                             assert!(failing_hypertest.test_one.0.get_secret_part_bytes().len() > 0 ||
                                     failing_hypertest.test_two.0.get_secret_part_bytes().len() > 0);
 
-                            let new_testcase = if failing_hypertest.test_one.0.get_secret_part_bytes().is_empty() {
-                                Testcase::new(failing_hypertest.test_two.0)
+                            let (quanti_input, quanti_out) = if failing_hypertest.test_one.0.get_secret_part_bytes().is_empty() {
+                                failing_hypertest.test_two
                             } else {
-                                Testcase::new(failing_hypertest.test_one.0)
+                                failing_hypertest.test_one
                             };
-                            self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&input, &output_data);
+                            let cloned_out = (*quanti_out).to_owned();
+
+                            self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&quanti_input, &cloned_out);
+                            let new_testcase = Testcase::new(quanti_input);
                             state.violations_mut().add(new_testcase).unwrap();
                         }
                     },

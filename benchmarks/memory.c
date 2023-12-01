@@ -40,6 +40,8 @@ void disableMemWrap() {
   memWrapEnabled = 0;
 }
 
+#define MALLOC_PAD 32
+
 void *__wrap_malloc(size_t bytes) {
 #ifdef __APPLE__
   if (!__real_malloc) {
@@ -49,9 +51,8 @@ void *__wrap_malloc(size_t bytes) {
 
   if (!memWrapEnabled) return __real_malloc(bytes);
 
-  size_t adjustedBytes = bytes + 32; // Add some extra bytes padding
+  size_t adjustedBytes = bytes + MALLOC_PAD; // Add some extra bytes padding
   uint8_t *raw = (uint8_t *)__real_malloc(adjustedBytes);
-  printf("malloced %u bytes at %p\n", adjustedBytes, raw);
 
   for (size_t i = 0; i < adjustedBytes; i += memFillLen) {
     uint32_t bufRemaining = memFillLen - memFillBufPos;
@@ -59,17 +60,15 @@ void *__wrap_malloc(size_t bytes) {
     // if we have more bytes remaining in buf than we need to fill
     if (adjustedBytes - i < bufRemaining) {
       uint32_t copyLen = adjustedBytes - i;
-      printf("adjustedBytes = %u, i = %u, filling %u bytes from %p\n", adjustedBytes, i, copyLen, raw + i);
       memcpy(raw + i, memFillBuf + memFillBufPos, copyLen);
       memFillBufPos += copyLen;
     } else {
-      printf("filling %u bytes from %p\n", bufRemaining, raw + i);
       memcpy(raw + i, memFillBuf + memFillBufPos, bufRemaining);
       memFillBufPos = 0;
     }
   }
 
-  return (void *)(raw + 16);
+  return (void *)(raw + MALLOC_PAD / 2);
 }
 
 void __wrap_free(void *ptr) {
@@ -83,7 +82,7 @@ void __wrap_free(void *ptr) {
     __real_free(ptr);
     return;
   }
-  __real_free(((uint8_t *)ptr) - 16);
+  __real_free(((uint8_t *)ptr) - MALLOC_PAD / 2);
 }
 
 void *__wrap_realloc(void *ptr, size_t new_size) {

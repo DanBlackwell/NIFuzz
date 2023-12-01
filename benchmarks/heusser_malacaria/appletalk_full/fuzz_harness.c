@@ -17,7 +17,7 @@ int main(int argc, char **argv)
 {
 	__AFL_INIT();
 
-    // handle PUBLIC
+  // handle PUBLIC
 
 	if (PUBLIC_LEN < sizeof(struct atalk_sock) + sizeof(int)) return 1;
 
@@ -26,23 +26,21 @@ int main(int argc, char **argv)
 	memcpy(&a_sock, PUBLIC_IN, sizeof(a_sock));
 	sock.sk = (struct sock *)&a_sock;
 
-	static struct sockaddr uaddr = {0};
+	static struct sockaddr_at uaddr = {0};
 	static int uaddr_len;
 	peer = *(int *)(PUBLIC_IN + sizeof(a_sock));
 
-    // handle SECRET
-    initMemFillBuf(SECRET_IN, SECRET_LEN);
-    enableMemWrap();
-    FILL_STACK(SECRET_IN, SECRET_LEN);
+  // handle SECRET
+  initMemFillBuf(SECRET_IN, SECRET_LEN);
+  enableMemWrap();
+  FILL_STACK(SECRET_IN, SECRET_LEN);
 
-    // execute the function
+  // execute the function
 
-	if (atalk_getname(&sock, &uaddr, &uaddr_len, peer) >= 0) {
-		printf("%hu", uaddr.sa_family);
-		for (int i = 0; i < sizeof(uaddr.sa_data); i++) {
-			printf("%hhX", uaddr.sa_data[i]);
-		}
-		printf("\n");
+	if (atalk_getname(&sock, (struct sockaddr *)&uaddr, &uaddr_len, peer) >= 0) {
+    		write(1, &uaddr, sizeof(uaddr));
+		putc('\n', stdout);
+		fflush(stdout);
 	}
 
     return 0;

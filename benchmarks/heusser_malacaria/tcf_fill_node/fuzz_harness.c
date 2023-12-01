@@ -1441,11 +1441,8 @@ int main(int argc, char **argv)
         res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
         if (res < 0) return 1;
 
-	      static int i;
-        for (i = 0; i < skb.len; i++) {
-                printf("%hhx", skb.data[i]);
-        }
-        printf("\n");
+        write(1, skb.data, skb.len);
+        putc('\n', stdout);
 
         free(skb.data);
 

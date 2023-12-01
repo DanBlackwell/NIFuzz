@@ -402,17 +402,17 @@ where
                 }
 
                 if flipped_bit != usize::MAX {
-                    // println!("bit {} of input flip maps to bit {flipped_bit} of (bit-vector converted) output", metadata.bitflip_flips_output_bit.len());
-                    // let mut hex = orig.iter()
-                    //     .map(|b| format!("{:02x}", b).to_string())
-                    //     .collect::<Vec<String>>()
-                    //     .join(" ");
-                    // println!("  orig: {:?}", hex);
-                    // hex = new.iter()
-                    //     .map(|b| format!("{:02x}", b).to_string())
-                    //     .collect::<Vec<String>>()
-                    //     .join(" ");
-                    // println!("  new:  {:?}", hex);
+                    println!("bit {} of input flip maps to bit {flipped_bit} of (bit-vector converted) output", metadata.bitflip_flips_output_bit.len());
+                    let mut hex = orig.iter()
+                        .map(|b| format!("{:02x}", b).to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    println!("  orig: {:?}", hex);
+                    hex = new.iter()
+                        .map(|b| format!("{:02x}", b).to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    println!("  new:  {:?}", hex);
                 }
                 metadata.bitflip_flips_output_bit.push(
                     if flipped_bit != usize::MAX { Some(flipped_bit) } else { None }

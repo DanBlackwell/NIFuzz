@@ -33,7 +33,6 @@ extern uint64_t __cur_buf_pos;
   __cur_addr = (uint8_t *)get_cur_stack_bottom() + 1; \
   __cur_buf_pos = 0; \
   GET_SP(__stack_top); \
-  printf("filling from %p-%p\n", __cur_addr, __stack_top); \
  \
   do { \
     *__cur_addr = buf[__cur_buf_pos]; \

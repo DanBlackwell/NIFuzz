@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 // typedef long long loff_t;
 
@@ -55,17 +56,8 @@ struct ctr_struct {
 
 int copy_to_user(void *user_dest, const void *kernel_buf, size_t size)
 {
-  const char hex_str[]= "0123456789abcdef";
-  char *out_str = malloc(2 * size + 1);
-  int pos = 0;
-  for (int i = 0; i < size; i++) {
-    out_str[pos++] = hex_str[(((char *)kernel_buf)[i] >> 4) & 0x0F];
-    out_str[pos++] = hex_str[((char *)kernel_buf)[i] & 0x0F];
-  }
-  out_str[pos] = 0;
-
-  puts(out_str);
-
+  write(1, kernel_buf, size);
+  putc('\n', stdout);
   return 0;
 }
 
