@@ -16,10 +16,10 @@
   extern void *__real_realloc(void *, size_t);
 #endif
 
-const uint8_t *memFillBuf;
-uint32_t memFillLen;
+static const uint8_t *memFillBuf;
+static uint32_t memFillLen;
 // Use this to keep the fills as contiguous copies of the buffer
-uint32_t memFillBufPos;
+static uint32_t memFillBufPos;
 
 int memWrapEnabled = 0;
 

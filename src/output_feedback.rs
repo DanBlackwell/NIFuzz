@@ -13,7 +13,7 @@ use libafl::feedbacks::HasObserverName;
 /// The prefix of the metadata names
 pub const OUTPUT_FEEDBACK_METADATA_PREFIX: &str = "output_feedback_metadata_";
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct OutputData {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>
@@ -21,9 +21,13 @@ pub struct OutputData {
 
 impl OutputData {
     pub fn to_string(&self) -> String {
-        format!("stdout: {:?}, stderr: {:?}", 
-            std::string::String::from_utf8_lossy(&self.stdout),
-            std::string::String::from_utf8_lossy(&self.stderr))
+        format!("{{ len: {{ stdout: {}, stderr: {} }}, data: {{ stdout: {:?}, stderr: {:?} }} }}", 
+                self.stdout.len(),
+                self.stderr.len(),
+                self.stdout.clone().into_iter().take(60).collect::<Vec<u8>>(), 
+                self.stderr.clone().into_iter().take(60).collect::<Vec<u8>>())
+//            std::string::String::from_utf8_lossy(&self.stdout),
+//            std::string::String::from_utf8_lossy(&self.stderr))
     }
 
     pub fn get_hash(&self) -> u64 {

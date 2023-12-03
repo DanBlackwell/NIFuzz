@@ -304,6 +304,7 @@ where
                 return Ok(()); 
             }
         }
+        println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
         let cur = input.get_mutable_current_buf_seg().to_owned();
         assert!(input.get_secret_part_bytes() == cur);
@@ -315,9 +316,7 @@ where
             let buf = input.get_mutable_current_buf_seg();
             let byte = i / 8;
             let bitmask: u8 = 0x80 >> (i % 8);
-            println!("Before flip: {:?}", buf);
             buf[byte] ^= bitmask;
-            println!("Before flip: {:?}", buf);
 
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
             metadata.current_bitflips = vec![i];
@@ -369,7 +368,7 @@ where
             metadata.bitflip_flips_output_bits = filtered;
         }
 
-        println!("Removing dupes: {:?}, resulting map: {:?}", dupes, metadata.bitflip_flips_output_bits);
+        println!("Removing dupes: {:?}", dupes);
         metadata.ignored_output_bitflips = dupes;
 
         match mapped_bitflips {
@@ -437,12 +436,9 @@ where
                 )
             };
 
-            println!("Flipping bits: {:?} (from {} output_mapped_bits) in secret of len: {}", bits_to_flip, output_mapped_bits.len(), secret.len());
-            println!("secret was: {:?}", secret);
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
-            println!("secret now: {:?}", secret);
 
             {
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;

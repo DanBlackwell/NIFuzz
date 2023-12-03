@@ -53,7 +53,7 @@ bool withdraw(Account *account, dollars amount) {
         } else {
             char string[256];
             int res = snprintf(string, sizeof(string), 
-                "Account has insufficient funds to withdraw %ld", amount);
+                "Account has insufficient funds to withdraw %hu", amount);
             if (res > sizeof(string)) exit(1);
 
             account->logError(string);

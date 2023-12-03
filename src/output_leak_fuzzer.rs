@@ -309,27 +309,51 @@ where
         EM: EventFirer<State = Self::State>,
     {
         let exit_kind = self.execute_input(state, executor, manager, &input)?;
-        let observers = executor.observers();
+        // let observers = executor.observers();
 
-        self.scheduler.on_evaluation(state, &input, observers)?;
+        self.scheduler.on_evaluation(state, &input, executor.observers())?;
 
-        let observer = observers.match_name::<OutputObserver>("output").unwrap();
         if state.targeting_violations() != ViolationsTargetingApproach::None {
+            let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
             let empty = Vec::new();
             let stdout = match observer.stdout() { None => &empty, Some(o) => o };
             let stderr = match observer.stderr() { None => &empty, Some(o) => o };
             let output_data = OutputData { stdout: stdout.clone(), stderr: stderr.clone() };
 
-            match state.targeting_violations() {
-                ViolationsTargetingApproach::SingleBitFlips | ViolationsTargetingApproach::RandomBitFlips => {
-                    self.hypertest_feedback.check_for_bitflip_output(&input, &output_data);
+            let mut inconsistent = false;
+            for i in 0..10 {
+                let cur_exit = self.execute_input(state, executor, manager, &input)?;
+
+                if cur_exit != exit_kind {
+                    panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
                 }
-                ViolationsTargetingApproach::UniformSampling => 
-                    self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data),
-                _ => panic!("unhandled case!")
-            };
+
+                let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+
+                let empty = Vec::new();
+                let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+                let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+
+                if output_data.stdout != *stdout || output_data.stderr != *stderr {
+                    inconsistent = true;
+                    println!("Received inconsistent output on run {i}");
+                    break;
+                }
+            }
+
+            if !inconsistent {
+              match state.targeting_violations() {
+                  ViolationsTargetingApproach::SingleBitFlips | ViolationsTargetingApproach::RandomBitFlips => {
+                      self.hypertest_feedback.check_for_bitflip_output(&input, &output_data);
+                  }
+                  ViolationsTargetingApproach::UniformSampling => 
+                      self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data),
+                  _ => panic!("unhandled case!")
+              };
+            }
         }
 
+        let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
         let (needs_rerun, output_data) = self.hypertest_feedback.needs_rerun(&input, &observer);
 
         if needs_rerun {
@@ -352,6 +376,7 @@ where
 
                 if output_data.stdout != *stdout || output_data.stderr != *stderr {
                     inconsistent = true;
+                    println!("Received inconsistent output on run {i}");
                     // println!("Expected consistent output: {:?} {:?} but got {:?} {:?} on run {}", 
                     //     output_data.stdout, output_data.stderr, *stdout, *stderr, i);
                     break;
@@ -359,39 +384,65 @@ where
             }
 
             if !inconsistent {
-                let failing_hypertest = self.hypertest_feedback.exposes_fault(&input, &output_data);
-                match failing_hypertest {
-                    Some((failing_hypertest, is_new_violation)) => { 
+                let res = self.hypertest_feedback.exposes_fault(&input, &output_data);
+                match res {
+                    Some((ref failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
                             println!("Found new violation!");
                             assert!(failing_hypertest.test_one.0.get_public_part_bytes() == failing_hypertest.test_two.0.get_public_part_bytes());
+                            assert!(failing_hypertest.test_one.1 != failing_hypertest.test_two.1);
+                            let t1in = failing_hypertest.test_one.0.clone();
+                            let t1out = failing_hypertest.test_one.1.clone();
+                            let t2in = failing_hypertest.test_two.0.clone();
+                            let t2out = failing_hypertest.test_two.1.clone();
+
+
+                            for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
+                                let cur_exit = self.execute_input(state, executor, manager, &input)?;
+                                let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+
+                                let empty = Vec::new();
+                                let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+                                let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+                
+                                let mut matched = true;
+                                if output_data.stdout != *stdout {
+                                    println!("Received differing input for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
+                                    matched = false;
+                                }
+                                if output_data.stderr != *stderr {
+                                    println!("Received differing input for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
+                                    matched = false;
+                                }
+                                if matched { println!("Retested both inputs and got the expected outputs - seems this is a real violation"); }
+                            }
 
                             macro_rules! maybe_truncate {
                                 ($arr:expr) => {
-                                    if $arr.len() > 60 { &$arr[..60] } else { $arr }
+                                    if $arr.len() > 120 { &$arr[..120] } else { $arr }
                                 };
                             }
 
-                            println!("  test 1 in : {:?}", maybe_truncate!(failing_hypertest.test_one.0.get_raw_bytes()));
-                            let t1_output = failing_hypertest.test_one.1.to_string();
+                            println!("  test 1 in : {:?}", maybe_truncate!(t1in.get_raw_bytes()));
+                            let t1_output = t1out.to_string();
                             let t1_chars = t1_output.chars().into_iter().collect::<Vec<char>>();
                             let t1_trunc = maybe_truncate!(&t1_chars);
-                            println!("  test 1 out: {:?}", t1_trunc.into_iter().collect::<String>());
-                            println!("  test 2 in : {:?}", maybe_truncate!(failing_hypertest.test_two.0.get_raw_bytes()));
-                            let t2_output = failing_hypertest.test_two.1.to_string();
+                            println!("  test 1 out: {}", t1_trunc.into_iter().collect::<String>());
+                            println!("  test 2 in : {:?}", maybe_truncate!(t2in.get_raw_bytes()));
+                            let t2_output = t2out.to_string();
                             let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
                             let t2_trunc = maybe_truncate!(&t2_chars);
-                            println!("  test 2 out: {:?}", t2_trunc.into_iter().collect::<String>());
+                            println!("  test 2 out: {}", t2_trunc.into_iter().collect::<String>());
 
-                            assert!(failing_hypertest.test_one.0.get_secret_part_bytes().len() > 0 ||
-                                    failing_hypertest.test_two.0.get_secret_part_bytes().len() > 0);
+                            assert!(t1in.get_secret_part_bytes().len() > 0 ||
+                                    t2in.get_secret_part_bytes().len() > 0);
 
-                            let (quanti_input, quanti_out) = if failing_hypertest.test_one.0.get_secret_part_bytes().is_empty() {
-                                failing_hypertest.test_two
+                            let (quanti_input, quanti_out) = if t1in.get_secret_part_bytes().is_empty() {
+                                (t2in, t2out)
                             } else {
-                                failing_hypertest.test_one
+                                (t1in, t1out)
                             };
-                            let cloned_out = (*quanti_out).to_owned();
+                            let cloned_out = quanti_out.to_owned();
 
                             self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&quanti_input, &cloned_out);
                             let new_testcase = Testcase::new(quanti_input);

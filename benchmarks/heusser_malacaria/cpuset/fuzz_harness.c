@@ -61,7 +61,8 @@ int copy_to_user(void *user_dest, const void *kernel_buf, size_t size)
   return 0;
 }
 
-ssize_t simple_read_from_buffer(void /*__user*/ *to, size_t count, loff_t *ppos,
+#define __user 
+ssize_t simple_read_from_buffer(void __user *to, size_t count, loff_t *ppos,
                                 const void *from, size_t available)
 {
         loff_t pos = *ppos;
@@ -81,7 +82,7 @@ ssize_t simple_read_from_buffer(void /*__user*/ *to, size_t count, loff_t *ppos,
         return count;
 }
 
-static ssize_t cpuset_tasks_read(struct file *file, char /*__user*/ *buf,
+static ssize_t cpuset_tasks_read(struct file *file, char __user *buf,
 						size_t nbytes, loff_t *ppos)
 {
 	struct ctr_struct *ctr = file->private_data;
@@ -102,8 +103,6 @@ static ssize_t cpuset_tasks_read(struct file *file, char /*__user*/ *buf,
 #include <string.h>
 
 __AFL_FUZZ_INIT();
-
-int bufsz;
 
 int main(int argc, char **argv) 
 {
@@ -128,11 +127,12 @@ int main(int argc, char **argv)
   ppos = *(loff_t *)(PUBLIC_IN + pos);
   pos += sizeof(ppos);
   
-  bufsz = PUBLIC_LEN - pos;
   static struct ctr_struct internal_structure = {}; 
+  static int bufsz;
+  bufsz = PUBLIC_LEN - pos;
   internal_structure.bufsz = bufsz;
   internal_structure.buf = malloc(bufsz);
-  memcpy(internal_structure.buf, public_in, bufsz);
+  memcpy(internal_structure.buf, PUBLIC_IN + pos, bufsz);
   static struct file the_file = { .private_data = (void *)&internal_structure };
   
   // execute the function
