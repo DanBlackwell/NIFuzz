@@ -29,17 +29,18 @@ extern uint64_t __cur_buf_pos;
 #endif 
 
 #define FILL_STACK(buf, len) { \
-  if (!len) { return 1; } \
-  __cur_addr = (uint8_t *)get_cur_stack_bottom() + 1; \
-  __cur_buf_pos = 0; \
-  GET_SP(__stack_top); \
- \
-  do { \
-    *__cur_addr = buf[__cur_buf_pos]; \
-    __cur_addr++; \
-    __cur_buf_pos++; \
-    if (__cur_buf_pos >= len) __cur_buf_pos = 0; \
-  } while (__cur_addr < __stack_top); \
+  if (len) { \
+    __cur_addr = (uint8_t *)get_cur_stack_bottom() + 1; \
+    __cur_buf_pos = 0; \
+    GET_SP(__stack_top); \
+   \
+    do { \
+      *__cur_addr = buf[__cur_buf_pos]; \
+      __cur_addr++; \
+      __cur_buf_pos++; \
+      if (__cur_buf_pos >= len) __cur_buf_pos = 0; \
+    } while (__cur_addr < __stack_top); \
+  } \
 }
 
 

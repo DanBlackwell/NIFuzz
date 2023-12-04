@@ -1,4 +1,4 @@
-// Paired back implementation of CVE-2011-2208
+// Paired back implementation of CVE-2011-1078
 
 #include <stdio.h>
 #include <stdint.h>
@@ -157,7 +157,7 @@ static int sco_sock_getsockopt_old(struct socket *sock, int optname, char __user
 			break;
 		}
 
-		memset(&cinfo, 0, sizeof(cinfo));
+		// memset(&cinfo, 0, sizeof(cinfo)); // FIX!
 		cinfo.hci_handle = sco_pi(sk)->conn->hcon->handle;
 		memcpy(cinfo.dev_class, sco_pi(sk)->conn->hcon->dev_class, 3);
 
@@ -175,19 +175,19 @@ static int sco_sock_getsockopt_old(struct socket *sock, int optname, char __user
 	release_sock(sk);
 	return err;
 }
-
-int main(void) 
-{
-	struct sock mySock = {};
-	struct socket mySocket = { .sk = &mySock };
-	int optname = SCO_CONNINFO;
-	char optval[80];
-	int optlen = sizeof(optval);
-
-	int res = sco_sock_getsockopt_old(&mySocket, optname, optval, &optlen);
-	printf("res: %d, optlen: %d, optval: [", res, optlen);
-	for (int i = 0; i < optlen; i++) {
-		printf("%02hhX", optval[i]);
-	}
-	printf("]\n");
-}
+// 
+// int main(void) 
+// {
+// 	struct sock mySock = {};
+// 	struct socket mySocket = { .sk = &mySock };
+// 	int optname = SCO_CONNINFO;
+// 	char optval[80];
+// 	int optlen = sizeof(optval);
+// 
+// 	int res = sco_sock_getsockopt_old(&mySocket, optname, optval, &optlen);
+// 	printf("res: %d, optlen: %d, optval: [", res, optlen);
+// 	for (int i = 0; i < optlen; i++) {
+// 		printf("%02hhX", optval[i]);
+// 	}
+// 	printf("]\n");
+// }

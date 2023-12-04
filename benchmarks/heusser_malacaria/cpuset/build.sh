@@ -31,5 +31,5 @@ elif [[ "$1" == "LeakiEst" || "$1" == "leakiest" ]]; then
 
 else
   echo "Usage: $0 [CBMC|fuzz|LeakiEst]"
-  exit
+  exit 1
 fi

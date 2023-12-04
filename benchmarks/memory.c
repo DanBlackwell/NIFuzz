@@ -16,7 +16,7 @@
   extern void *__real_realloc(void *, size_t);
 #endif
 
-static const uint8_t *memFillBuf;
+static uint8_t memFillBuf[1024 * 1024]; // relying on AFL max input size here...
 static uint32_t memFillLen;
 // Use this to keep the fills as contiguous copies of the buffer
 static uint32_t memFillBufPos;
@@ -28,8 +28,9 @@ uint8_t *__cur_addr;
 uint64_t __cur_buf_pos;
 
 void initMemFillBuf(const uint8_t *buf, const uint32_t len) {
-  memFillBuf = buf;
+//  memFillBuf = __real_malloc(len);
   memFillLen = len;
+  memcpy(memFillBuf, buf, len);
 }
 
 void enableMemWrap() {
@@ -54,6 +55,8 @@ void *__wrap_malloc(size_t bytes) {
   size_t adjustedBytes = bytes + MALLOC_PAD; // Add some extra bytes padding
   uint8_t *raw = (uint8_t *)__real_malloc(adjustedBytes);
 
+  if (!memFillLen) goto out;
+
   for (size_t i = 0; i < adjustedBytes; i += memFillLen) {
     uint32_t bufRemaining = memFillLen - memFillBufPos;
 
@@ -68,6 +71,7 @@ void *__wrap_malloc(size_t bytes) {
     }
   }
 
+out:
   return (void *)(raw + MALLOC_PAD / 2);
 }
 

@@ -16,7 +16,7 @@ use libafl::{
     feedback_and_fast, feedback_or,
     feedbacks::{CrashFeedback, MaxMapFeedback, TimeFeedback},
     fuzzer::Fuzzer,
-    monitors::SimpleMonitor,
+    monitors::{SimpleMonitor, SimplePrintingMonitor},
     mutators::{StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
     state::{HasCorpus, HasMetadata}, prelude::CachedOnDiskCorpus, 
@@ -36,8 +36,15 @@ pub mod leak_fuzzer_mutational_stage;
 #[allow(non_snake_case)]
 pub mod STADS;
 // use output_feedback::OutputFeedback;
-use output_forkserver::TimeoutForkserverExecutorWithOutput;
-use crate::{output_observer::OutputObserver, output_forkserver::ForkserverExecutorWithOutput, hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, leak_fuzzer_state::LeakFuzzerState, leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, leak_fuzzer_scheduler::RandLeakScheduler, STADS::StadsMapFeedback};
+use crate::{
+    output_observer::OutputObserver, 
+    output_forkserver::{ForkserverWithOutputExecutor, TimeoutForkserverWithOutputExecutor},
+    hypertest_feedback::{InfoLeakChecker, HypertestFeedback}, 
+    leak_fuzzer_state::LeakFuzzerState, 
+    leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, 
+    leak_fuzzer_scheduler::RandLeakScheduler, 
+    STADS::StadsMapFeedback
+};
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
 use pub_sec_mutations::pub_sec_mutations;
@@ -159,7 +166,8 @@ pub fn main() {
         // on disk so the user can get them after stopping the fuzzer
         OnDiskCorpus::new(PathBuf::from("./crashes")).unwrap(),
         // Only store the violations temporarily
-        InMemoryCorpus::<PubSecBytesInput>::new(),
+        //InMemoryCorpus::<PubSecBytesInput>::new(),
+        OnDiskCorpus::new(PathBuf::from("./violations")).unwrap(),
         // States of the feedbacks.
         // The feedbacks can report the data that should persist in the State.
         &mut feedback,
@@ -169,7 +177,8 @@ pub fn main() {
     .unwrap();
 
     // The Monitor trait define how the fuzzer stats are reported to the user
-    let monitor = SimpleMonitor::new(|s| println!("{s}"));
+    // let monitor = SimpleMonitor::new(|s| println!("{s}"));
+    let monitor = SimplePrintingMonitor::new();
 
     // The event manager handle the various events generated during the fuzzing loop
     // such as the notification of the addition of a new item to the corpus
@@ -188,7 +197,7 @@ pub fn main() {
     let args = opt.arguments;
 
     let mut tokens = Tokens::new();
-    let mut forkserver = ForkserverExecutorWithOutput::builder()
+    let mut forkserver = ForkserverWithOutputExecutor::builder()
         .program(opt.executable)
         .debug_child(true)
         // .is_persistent(false)
@@ -207,7 +216,7 @@ pub fn main() {
             .truncate(dynamic_map_size);
     }
 
-    let mut executor = TimeoutForkserverExecutorWithOutput::with_signal(
+    let mut executor = TimeoutForkserverWithOutputExecutor::with_signal(
         forkserver,
         Duration::from_millis(opt.timeout),
         opt.signal,

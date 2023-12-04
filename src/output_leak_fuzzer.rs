@@ -309,6 +309,12 @@ where
         EM: EventFirer<State = Self::State>,
     {
         let exit_kind = self.execute_input(state, executor, manager, &input)?;
+        if exit_kind == ExitKind::Timeout { 
+            println!("Timeout on input with pub len: {}, sec len: {}", input.get_public_part_bytes().len(), input.get_secret_part_bytes().len()); 
+            // println!("{:?}", input.get_raw_bytes());
+            self.scheduler.on_evaluation(state, &input, executor.observers())?;
+            return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
+        }
         // let observers = executor.observers();
 
         self.scheduler.on_evaluation(state, &input, executor.observers())?;
@@ -360,7 +366,9 @@ where
             let output_data = output_data.unwrap();
             let mut inconsistent = false;
             for i in 0..10 {
-                let cur_exit = self.execute_input(state, executor, manager, &input)?;
+                *state.executions_mut() += 1;
+                let cur_exit = executor.run_target(self, state, manager, &input)?;
+                // let cur_exit = self.execute_input(state, executor, manager, &input)?;
 
                 if cur_exit != exit_kind {
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
@@ -398,7 +406,9 @@ where
 
 
                             for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
-                                let cur_exit = self.execute_input(state, executor, manager, &input)?;
+                                *state.executions_mut() += 1;
+                                let cur_exit = executor.run_target(self, state, manager, &input)?;
+                               //  let cur_exit = self.execute_input(state, executor, manager, &input)?;
                                 let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
 
                                 let empty = Vec::new();
@@ -423,12 +433,12 @@ where
                                 };
                             }
 
-                            println!("  test 1 in : {:?}", maybe_truncate!(t1in.get_raw_bytes()));
+                            println!("  test 1 in : {:?}", maybe_truncate!(t1in.get_secret_part_bytes()));
                             let t1_output = t1out.to_string();
                             let t1_chars = t1_output.chars().into_iter().collect::<Vec<char>>();
                             let t1_trunc = maybe_truncate!(&t1_chars);
                             println!("  test 1 out: {}", t1_trunc.into_iter().collect::<String>());
-                            println!("  test 2 in : {:?}", maybe_truncate!(t2in.get_raw_bytes()));
+                            println!("  test 2 in : {:?}", maybe_truncate!(t2in.get_secret_part_bytes()));
                             let t2_output = t2out.to_string();
                             let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
                             let t2_trunc = maybe_truncate!(&t2_chars);
