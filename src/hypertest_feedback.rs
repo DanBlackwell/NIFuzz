@@ -506,7 +506,7 @@ where
                     .collect::<Vec<usize>>();
                 expected_bitflips.sort();
                 // println!("Checking expected bitflips {:?}", expected_bitflips);
-                if expected_bitflips.len() == 0 { panic!(); }
+                if expected_bitflips.len() == 0 { println!("No bits were flipped???"); return; }
 
                 let mut expected_bitflips_iter = expected_bitflips.iter();
                 let mut next_bitflip_pos;

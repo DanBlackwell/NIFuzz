@@ -2,7 +2,7 @@
 
 
 
-for COLLECTION in SIFF heusser_malacaria; do
+for COLLECTION in heusser_malacaria phan_malacaria SIFF; do
     pushd $COLLECTION;
         for DIR in */; do
             pushd $DIR;
@@ -20,7 +20,7 @@ done;
 # Wait for the timeout
 wait
 
-for COLLECTION in SIFF heusser_malacaria; do
+for COLLECTION in heusser_malacaria phan_malacaria SIFF; do
     pushd $COLLECTION;
         for DIR in */; do
             pushd $DIR;

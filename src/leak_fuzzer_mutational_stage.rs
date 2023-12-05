@@ -401,19 +401,21 @@ where
             };
         }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input)?;
-        let output_mapped_bits = metadata.bitflip_flips_output_bits.iter()
-            .enumerate()
-            .filter(|(_idx, val)| !val.is_empty())
-            .map(|(idx, _)| idx)
-            .collect::<Vec<usize>>();
-        println!("Bits that mapped (in input of len: {}): {:?}", metadata.bitflip_flips_output_bits.len(), output_mapped_bits);
 
         let mut input = input.clone();
         input.set_current_mutate_target(CurrentMutateTarget::Secret);
         let sec_len_bits = 8 * input.get_secret_part_bytes().len();
 
         for stage in 0..sec_len_bits {
+            let output_mapped_bits = {
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input)?;
+                metadata.bitflip_flips_output_bits.iter()
+                    .enumerate()
+                    .filter(|(_idx, val)| !val.is_empty())
+                    .map(|(idx, _)| idx)
+                    .collect::<Vec<usize>>()
+            };
+    
             let mut input = input.clone();
             let secret = input.get_mutable_current_buf_seg();
             let mut rand = thread_rng();
@@ -435,6 +437,9 @@ where
                     }
                 )
             };
+
+            // no point checking single bit flips again...
+            if bits_to_flip.len() <= 1 { break; }
 
             for bit in &bits_to_flip {
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;

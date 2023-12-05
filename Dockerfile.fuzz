@@ -14,6 +14,7 @@ RUN cargo build --release
 COPY benchmarks/CBMC_utils/ /home/benchmarks/CBMC_utils/
 COPY benchmarks/SIFF/ /home/benchmarks/SIFF/ 
 COPY benchmarks/heusser_malacaria/ /home/benchmarks/heusser_malacaria/
+COPY benchmarks/phan_malacaria/ /home/benchmarks/phan_malacaria/
 COPY benchmarks/*.c benchmarks/*.h benchmarks/build_all.sh /home/benchmarks/
 WORKDIR /home/benchmarks
 RUN ./build_all.sh fuzz
@@ -22,6 +23,6 @@ RUN mkdir -p /home/results
 COPY benchmarks/fuzz_all.sh /home/benchmarks/
 
 # ENV RUNTIME=43200
-ENV RUNTIME=300
+ENV RUNTIME=600
 
 CMD /home/benchmarks/fuzz_all.sh

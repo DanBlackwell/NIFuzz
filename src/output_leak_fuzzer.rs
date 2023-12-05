@@ -417,11 +417,11 @@ where
                 
                                 let mut matched = true;
                                 if output_data.stdout != *stdout {
-                                    println!("Received differing input for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
+                                    println!("Received differing output for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
                                     matched = false;
                                 }
                                 if output_data.stderr != *stderr {
-                                    println!("Received differing input for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
+                                    println!("Received differing outinput for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
                                     matched = false;
                                 }
                                 if matched { println!("Retested both inputs and got the expected outputs - seems this is a real violation"); }
