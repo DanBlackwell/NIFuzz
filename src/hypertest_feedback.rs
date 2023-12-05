@@ -28,7 +28,7 @@ impl<I> InfoLeakChecker<I> {}
 // #[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
 pub struct LeakQuantifyMetadata {
     /// Reference to the output with no bits flipped
-    pub original_output: OutputData,
+    pub original_output: Option<OutputData>,
     /// A list of bits that have been flipped for the current input
     pub current_bitflips: Vec<usize>,
     /// Flipping the bit at [index] causes 1 bit flip at the output
@@ -313,6 +313,7 @@ where
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
+                // We already have this secret hash (but new output - probably old output was incorrect)
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
                     let pos = hash_val.secret_input_hashes
                         .iter()
@@ -456,13 +457,16 @@ where
     fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData) {
         let metadata = self.get_leak_quantify_metadata_mut(input).unwrap();
         match metadata.current_bitflips.len() {
-            0 => panic!("There should have been a bit flipped"),
+            0 => {
+                if metadata.original_output.is_some() { panic!("Expected we're setting the original output again!"); }
+                metadata.original_output = Some(output_data.to_owned());
+            },
             1 => {
                 let mut flipped_bits = vec![];
 
                 // We should probably be comparing stdout and stderr separately... not concat'ed
-                let mut orig = metadata.original_output.stdout.clone();
-                orig.append(&mut metadata.original_output.stderr.clone());
+                let mut orig = metadata.original_output.as_ref().unwrap().stdout.clone();
+                orig.append(&mut metadata.original_output.as_ref().unwrap().stderr.clone());
 
                 let mut new = output_data.stdout.clone();
                 new.append(&mut output_data.stderr.clone());
@@ -516,8 +520,8 @@ where
                     panic!("No bits were flipped?");
                 }
 
-                let mut orig = metadata.original_output.stdout.clone();
-                orig.append(&mut metadata.original_output.stderr.clone());
+                let mut orig = metadata.original_output.as_ref().unwrap().stdout.clone();
+                orig.append(&mut metadata.original_output.as_ref().unwrap().stderr.clone());
 
                 let mut new = output_data.stdout.clone();
                 new.append(&mut output_data.stderr.clone());
@@ -769,7 +773,7 @@ where
 
         deets.leak_quantify_metadata = Some(LeakQuantifyMetadata {
             bitflip_flips_output_bits: vec![],
-            original_output: output_data.to_owned(),
+            original_output: Some(output_data.to_owned()),
             current_bitflips: vec![],
             completed_deterministic_bitflips: false,
             bitflips_do_not_map: false,

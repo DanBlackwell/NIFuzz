@@ -72,13 +72,14 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn get_public_part_bytes(&self) -> &[u8] {
-        debug_assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
+        assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         let len_indicator = std::mem::size_of::<u32>();
         let end = len_indicator + self.public_len;
         &self.raw_bytes[len_indicator..end]
     }
 
     fn get_secret_part_bytes(&self) -> &[u8] {
+        assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         let len_indicator = std::mem::size_of::<u32>();
         let start = len_indicator + self.public_len;
         &self.raw_bytes[start..]
@@ -167,7 +168,7 @@ impl PubSecInput for PubSecBytesInput {
                 }
             }
         }
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn get_current_buf_seg(&self) -> &[u8] {
@@ -181,7 +182,7 @@ impl PubSecInput for PubSecBytesInput {
     }
 
     fn get_mutable_current_buf_seg(&mut self) -> &mut [u8] {
-        debug_assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
+        assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.public_len as u32);
         let len_indicator = std::mem::size_of::<u32>();
         let public_end = len_indicator + self.public_len;
         match self.current_mutate_target {
@@ -193,7 +194,7 @@ impl PubSecInput for PubSecBytesInput {
 
     fn remove_bytes_in_range(&mut self, range: Range<usize>) {
         if range.is_empty() { return; }
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         let len_indicator = std::mem::size_of::<u32>();
         match self.current_mutate_target {
@@ -223,12 +224,12 @@ impl PubSecInput for PubSecBytesInput {
                 }
             }
         }    
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn insert_bytes_at_pos(&mut self, bytes: &[u8], start_pos: usize) {
         if bytes.is_empty() { return; }
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         let len_indicator = std::mem::size_of::<u32>();
         let adjusted_start = start_pos + len_indicator;
@@ -261,11 +262,11 @@ impl PubSecInput for PubSecBytesInput {
                 }
             }
         }    
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
     }
 
     fn swap_bytes_in_ranges(&mut self, range_1: Range<usize>, range_2: Range<usize>) {
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
 
         if (range_2.start >= range_1.start && range_2.start < range_1.end) ||
             (range_2.end > range_1.start && range_2.end < range_1.end) ||
@@ -318,7 +319,7 @@ impl PubSecInput for PubSecBytesInput {
             _ => ()
         };
 
-        debug_assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
+        assert!(self.raw_bytes.len() == 4 + self.public_len + self.secret_len);
         // println!("After swap:\n{:?}\npub: {}, sec: {}", temp, self.public_len, self.secret_len);
     }
 

@@ -293,29 +293,35 @@ where
 
         self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input)?;
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
         if metadata.bitflips_do_not_map || metadata.completed_deterministic_bitflips {
             return Ok(());
         }
 
-        // Find the number of extra output bitflips (ie where one input bit flips multiple output bits)
-        let num_extra_unique_output_bitflips = metadata.bitflip_flips_output_bits.iter()
-            .fold(0usize, |acc, x| acc + if x.len() > 1 { x.len() - 1 } else { 0 });
-        if num_extra_unique_output_bitflips == 0 {
+        // For input bits that map to many output bit flips, find the furthest distance 
+        // as we will extend the secret input by this amount
+        let furthest_one_to_many_dist = metadata.bitflip_flips_output_bits.iter()
+            .fold(0usize, |dist, flips| if flips.len() <= 1 { 0 } else {
+                let cur_dist = *flips.last().unwrap() - flips[0];
+                std::cmp::max(cur_dist, dist)
+            });
+        if furthest_one_to_many_dist == 0 {
             return Ok(());
         }
 
-        let extra_bytes = (num_extra_unique_output_bitflips as f64 / 8f64).ceil() as usize;
+        let extra_bytes = (furthest_one_to_many_dist as f64 / 8f64).ceil() as usize;
         let mut secret = input.get_secret_part_bytes().to_vec();
         secret.append(&mut vec![0; extra_bytes]);
         println!("Ok, extending input by {extra_bytes} bytes, now len: {}", secret.len());
 
-        let extended_input = <<Z as UsesState> ::State as UsesInput>::Input::from_pub_sec_bytes(
+        let mut extended_input = <<Z as UsesState> ::State as UsesInput>::Input::from_pub_sec_bytes(
             input.get_public_part_bytes(), &secret
         );
+        self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
+        extended_input.set_current_mutate_target(CurrentMutateTarget::Secret);
         self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input)?;
         
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
         let mut unmapped_end_bitflips = 0;
         for out_flips in metadata.bitflip_flips_output_bits.iter().rev() {
             if out_flips.is_empty() {
@@ -329,9 +335,32 @@ where
             let trimmed_secret_len = secret.len() - unmapped_end_bitflips / 8;
             let trimmed_secret = &secret[0..trimmed_secret_len];
             metadata.bitflip_flips_output_bits.truncate(8 * trimmed_secret_len);
-            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-            testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(trimmed_secret);
+            let input = {
+                let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+                testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(trimmed_secret);
+                testcase.input().as_ref().unwrap().to_owned()
+            };
+            self.collect_original_output_data(fuzzer, executor, state, manager, &input)?;
         }
+
+        Ok(())
+    }
+
+    fn collect_original_output_data(
+        &mut self,
+        fuzzer: &mut Z,
+        executor: &mut E,
+        state: &mut Z::State,
+        manager: &mut EM,
+        input: &<<Z as UsesState>::State as UsesInput>::Input,
+    ) -> Result<(), Error> {
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+        metadata.original_output = None;
+
+        let (untransformed, post) = input.clone().try_transform_into(state)?;
+        let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        // self.mutator_mut().post_exec(state, 0i32, corpus_idx)?;
+        // post.post_exec(state, 0i32, corpus_idx)?;
 
         Ok(())
     }
@@ -344,26 +373,12 @@ where
         manager: &mut EM,
         input: &<<Z as UsesState>::State as UsesInput>::Input,
     ) -> Result<(), Error> {
-        // let mut input;
-        // {
-        //     let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        //     if let Ok(i) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
-        //         input = i.clone();
-        //     } else { 
-        //         return Ok(()); 
-        //     }
-        // }
-        // println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
-        // input.set_current_mutate_target(CurrentMutateTarget::Secret);
-        // let cur = input.get_mutable_current_buf_seg().to_owned();
-        // assert!(input.get_secret_part_bytes() == cur);
-        // assert!(cur.len() > 0);
 
         let mut seen_output_flips = HashSet::<usize>::new();
         let mut dupes = HashSet::new();
         let tested_bitflips;
         {
-            let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input)?;
+            let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input).unwrap();
             tested_bitflips = metadata.bitflip_flips_output_bits.len();
             if tested_bitflips > 0 {
                 seen_output_flips = HashSet::from_iter(
@@ -382,7 +397,7 @@ where
             buf[byte] ^= bitmask;
 
             {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
                 metadata.current_bitflips = vec![i];
             }
         
@@ -396,7 +411,7 @@ where
             post.post_exec(state, i as i32, corpus_idx)?;
             mark_feature_time!(state, PerfFeature::MutatePostExec);
 
-            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
             for out_flip in metadata.bitflip_flips_output_bits.last().unwrap() {
                 if !seen_output_flips.insert(*out_flip) {
                     dupes.insert(*out_flip);
@@ -404,7 +419,7 @@ where
             }
         }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(input)?;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(input).unwrap();
         metadata.current_bitflips.clear();
 
         let mut mapped_bitflips = 0;
@@ -456,7 +471,7 @@ where
 
         for stage in 0..sec_len_bits {
             let output_mapped_bits = {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input)?;
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input).unwrap();
                 metadata.bitflip_flips_output_bits.iter()
                     .enumerate()
                     .filter(|(_idx, val)| !val.is_empty())
@@ -494,7 +509,7 @@ where
             }
 
             {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
                 if bits_to_flip.is_empty() {
                     panic!("supposed to flips {} bits (from possible {:?}), in input of len: {}", bits_to_flip.len(), output_mapped_bits, sec_len_bits);
                 }
@@ -512,7 +527,7 @@ where
             mark_feature_time!(state, PerfFeature::MutatePostExec);
         }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
         metadata.current_bitflips.clear();
         metadata.completed_deterministic_bitflips = true;
         println!("Completed deterministic bitflips for an input!");
