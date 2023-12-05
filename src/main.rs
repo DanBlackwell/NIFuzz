@@ -16,7 +16,7 @@ use libafl::{
     feedback_and_fast, feedback_or,
     feedbacks::{CrashFeedback, MaxMapFeedback, TimeFeedback},
     fuzzer::Fuzzer,
-    monitors::{SimpleMonitor, SimplePrintingMonitor},
+    monitors::SimplePrintingMonitor,
     mutators::{StdScheduledMutator, Tokens},
     observers::{HitcountsMapObserver, StdMapObserver, TimeObserver},
     state::{HasCorpus, HasMetadata}, prelude::CachedOnDiskCorpus, 

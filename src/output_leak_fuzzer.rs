@@ -407,7 +407,7 @@ where
 
                             for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
                                 *state.executions_mut() += 1;
-                                let cur_exit = executor.run_target(self, state, manager, &input)?;
+                                let _cur_exit = executor.run_target(self, state, manager, &input)?;
                                //  let cur_exit = self.execute_input(state, executor, manager, &input)?;
                                 let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
 

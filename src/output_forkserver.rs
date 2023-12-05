@@ -4,7 +4,7 @@
 
 extern crate alloc;
 use alloc::{borrow::ToOwned, string::ToString, vec::Vec};
-use libafl::executors::forkserver::{HasForkserver, ConfigTarget};
+use libafl::executors::forkserver::ConfigTarget;
 use nonblock::NonBlockingReader;
 use core::{
     fmt::{self, Debug, Formatter},
@@ -15,16 +15,16 @@ use core::{
 use std::{
     ffi::{OsStr, OsString},
     io::{self, prelude::*, ErrorKind},
-    os::unix::{io::RawFd, process::CommandExt},
+    os::unix::io::RawFd,
     path::Path,
     process::{Child, Command, Stdio, ChildStdout, ChildStderr},
 };
 
 use libafl_bolts::{
     fs::{get_unique_std_input_file, InputFile},
-    os::{dup2, pipes::Pipe},
+    os::pipes::Pipe,
     shmem::{ShMem, ShMemProvider, UnixShMemProvider},
-    tuples::{MatchName, Prepend},
+    tuples::Prepend,
     AsMutSlice, AsSlice, Truncate,
 };
 use nix::{
@@ -293,7 +293,7 @@ impl ForkserverWithOutput {
         memlimit: u64,
         is_persistent: bool,
         is_deferred_frksrv: bool,
-        debug_output: bool,
+        _debug_output: bool,
         kill_signal: Signal,
     ) -> Result<Self, Error> {
         let mut st_pipe = Pipe::new().unwrap();

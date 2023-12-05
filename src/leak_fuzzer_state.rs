@@ -89,7 +89,7 @@ pub enum ViolationsTargetingApproach {
     ToBeDecided,
     SingleBitFlips,
     RandomBitFlips,
-    UniformSampling
+    UniformSampling,
 }
 
 pub trait HasViolations: UsesInput {
