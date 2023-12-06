@@ -1,7 +1,7 @@
 
 use core::marker::PhantomData;
 
-use hashbrown::HashSet;
+use hashbrown::{HashSet, HashMap};
 use rand::{seq::IteratorRandom, thread_rng};
 
 #[cfg(feature = "introspection")]
@@ -23,7 +23,7 @@ use crate::{
     pub_sec_mutations::SecretUniformMutator, 
     pub_sec_input::{PubSecInput, CurrentMutateTarget}, 
     output_leak_fuzzer::HasHypertestFeedback, 
-    hypertest_feedback::HypertestFeedback
+    hypertest_feedback::HypertestFeedback, output_feedback::OutputSource
 };
 
 /// The default mutational stage
@@ -301,8 +301,14 @@ where
         // For input bits that map to many output bit flips, find the furthest distance 
         // as we will extend the secret input by this amount
         let furthest_one_to_many_dist = metadata.bitflip_flips_output_bits.iter()
-            .fold(0usize, |dist, flips| if flips.len() <= 1 { 0 } else {
-                let cur_dist = *flips.last().unwrap() - flips[0];
+            .fold(0usize, |dist, map| {
+                let mut cur_dist = 0;
+                for (_, flips) in map {
+                    if flips.len() > 1 { 
+                        cur_dist = std::cmp::max(cur_dist, flips.last().unwrap() - flips[0]);
+                    }
+                }
+
                 std::cmp::max(cur_dist, dist)
             });
         if furthest_one_to_many_dist == 0 {
@@ -374,16 +380,24 @@ where
         input: &<<Z as UsesState>::State as UsesInput>::Input,
     ) -> Result<(), Error> {
 
-        let mut seen_output_flips = HashSet::<usize>::new();
-        let mut dupes = HashSet::new();
+        let mut seen_output_flips = HashMap::<OutputSource, HashSet<usize>>::new();
+        let mut dupes = HashMap::<OutputSource, HashSet<usize>>::new();
         let tested_bitflips;
         {
             let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input).unwrap();
             tested_bitflips = metadata.bitflip_flips_output_bits.len();
             if tested_bitflips > 0 {
-                seen_output_flips = HashSet::from_iter(
-                    metadata.bitflip_flips_output_bits.iter().flatten().map(|&x| x)
-                );
+                metadata.bitflip_flips_output_bits.iter().for_each(|map| {
+                    for (source, flips) in map {
+                        if let Some(seen) = seen_output_flips.get_mut(source) {
+                            flips.iter().for_each(|&pos| { seen.insert(pos); });
+                        } else {
+                            seen_output_flips.insert(
+                                *source, flips.clone().into_iter().collect::<HashSet<usize>>()
+                            );
+                        }
+                    }
+                });
                 dupes = metadata.ignored_output_bitflips.clone();
             }
         };
@@ -412,9 +426,12 @@ where
             mark_feature_time!(state, PerfFeature::MutatePostExec);
 
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-            for out_flip in metadata.bitflip_flips_output_bits.last().unwrap() {
-                if !seen_output_flips.insert(*out_flip) {
-                    dupes.insert(*out_flip);
+            let map = metadata.bitflip_flips_output_bits.last().unwrap();
+            for (source, out_flips) in map {
+                for out_flip in out_flips {
+                    if !seen_output_flips.get_mut(source).unwrap().insert(*out_flip) {
+                        dupes.get_mut(source).unwrap().insert(*out_flip);
+                    }
                 }
             }
         }
@@ -425,10 +442,16 @@ where
         let mut mapped_bitflips = 0;
         // Filter out all the dupes so we don't get caught out later!
         for bitflip_map in metadata.bitflip_flips_output_bits.iter_mut() {
-            if !dupes.is_empty() {
-                bitflip_map.retain(|x| !dupes.contains(x));
+            dupes.iter().for_each(|(source, flips)| {
+                if !flips.is_empty() {
+                    bitflip_map.get_mut(source).unwrap().retain(|x| !flips.contains(x));
+                }
+            });
+
+            if !bitflip_map.iter()
+                .fold(false, |has_elems, (_source, flips)| has_elems || !flips.is_empty()) { 
+                mapped_bitflips += 1; 
             }
-            if !bitflip_map.is_empty() { mapped_bitflips += 1; }
         }
 
         println!("Removing dupes: {:?}", dupes);

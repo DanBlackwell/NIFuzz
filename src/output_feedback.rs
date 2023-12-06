@@ -13,6 +13,18 @@ use libafl::feedbacks::HasObserverName;
 /// The prefix of the metadata names
 pub const OUTPUT_FEEDBACK_METADATA_PREFIX: &str = "output_feedback_metadata_";
 
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub enum OutputSource {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OutputDataRefs<'a> {
+    pub stdout: &'a [u8],
+    pub stderr: &'a [u8]
+}
+
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct OutputData {
     pub stdout: Vec<u8>,
@@ -20,6 +32,10 @@ pub struct OutputData {
 }
 
 impl OutputData {
+    pub fn from_refs(refs: &OutputDataRefs) -> Self {
+        Self { stdout: refs.stdout.to_owned(), stderr: refs.stderr.to_owned() }
+    }
+
     pub fn to_string(&self) -> String {
         format!("{{ len: {{ stdout: {}, stderr: {} }}, data: {{ stdout: {:?}, stderr: {:?} }} }}", 
                 self.stdout.len(),

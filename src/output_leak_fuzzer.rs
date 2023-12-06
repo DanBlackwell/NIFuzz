@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     output_observer::{ObserverWithOutput, OutputObserver}, 
     pub_sec_input::PubSecInput, 
-    output_feedback::OutputData, leak_fuzzer_state::ViolationsTargetingApproach
+    output_feedback::{OutputDataRefs, OutputData}, leak_fuzzer_state::ViolationsTargetingApproach
 };
 use crate::hypertest_feedback::HypertestFeedback;
 use crate::leak_fuzzer_state::HasViolations;
@@ -324,11 +324,13 @@ where
             let empty = Vec::new();
             let stdout = match observer.stdout() { None => &empty, Some(o) => o };
             let stderr = match observer.stderr() { None => &empty, Some(o) => o };
-            let output_data = OutputData { stdout: stdout.clone(), stderr: stderr.clone() };
+            let output_data = OutputData { stdout: stdout.to_owned(), stderr: stderr.to_owned() };
 
             let mut inconsistent = false;
-            for i in 0..10 {
+            for i in 0..3 {
+                start_timer!(state);
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
+                mark_feature_time!(state, PerfFeature::TargetExecution);
 
                 if cur_exit != exit_kind {
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
@@ -367,7 +369,9 @@ where
             let mut inconsistent = false;
             for i in 0..10 {
                 *state.executions_mut() += 1;
+                start_timer!(state);
                 let cur_exit = executor.run_target(self, state, manager, &input)?;
+                mark_feature_time!(state, PerfFeature::TargetExecution);
                 // let cur_exit = self.execute_input(state, executor, manager, &input)?;
 
                 if cur_exit != exit_kind {
@@ -407,7 +411,9 @@ where
 
                             for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
                                 *state.executions_mut() += 1;
+                                start_timer!(state);
                                 let _cur_exit = executor.run_target(self, state, manager, &input)?;
+                                mark_feature_time!(state, PerfFeature::TargetExecution);
                                //  let cur_exit = self.execute_input(state, executor, manager, &input)?;
                                 let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
 
