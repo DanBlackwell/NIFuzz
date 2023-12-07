@@ -460,9 +460,18 @@ where
                             };
                             let cloned_out = quanti_out.to_owned();
 
-                            self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&quanti_input, &cloned_out);
-                            let new_testcase = Testcase::new(quanti_input);
-                            state.violations_mut().add(new_testcase).unwrap();
+                            if self.hypertest_feedback_mut().get_leak_quantify_metadata(&quanti_input).is_err() {
+                                for idx in state.violations().ids() {
+                                    let testcase = state.violations().get(idx).unwrap().borrow();
+                                    let input = testcase.input().as_ref().unwrap();
+                                    if *input.get_public_part_bytes() == *quanti_input.get_public_part_bytes() {
+                                        panic!("public input for new violation matched that at idx {:?}", idx);
+                                    }
+                                }
+                                self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&quanti_input, &cloned_out);
+                                let new_testcase = Testcase::new(quanti_input);
+                                state.violations_mut().add(new_testcase).unwrap();
+                            }
                         }
                     },
                     _ => ()

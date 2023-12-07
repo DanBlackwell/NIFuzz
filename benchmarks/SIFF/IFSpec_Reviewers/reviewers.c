@@ -16,9 +16,9 @@ int compareReviews(const void *rp1, const void *rp2) {
     const Review *lhs = rp1, *rhs = rp2;
 
     if (lhs->reviewer_id != rhs->reviewer_id) {
-        return lhs->reviewer_id < rhs->reviewer_id;
+        return lhs->reviewer_id - rhs->reviewer_id;
     } else if (lhs->score != rhs->score) {
-        return lhs->score < rhs->score;
+        return lhs->score - rhs->score;
     } else {
         return strcmp(lhs->content, rhs->content);
     }
@@ -64,34 +64,25 @@ int main(void) {
 
     __AFL_INIT();
 
-    unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-    int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
-                                          // call!
-
-    uint32_t public_len = *(unsigned int *)Data;
-    uint32_t secret_len = Size - public_len - sizeof(public_len);
-    const uint8_t *public_in = Data + sizeof(public_len);
-    const uint8_t *secret_in = public_in + public_len;
-
     ReviewProcess rp = { 
         .allocated = 2,
         .reviews = malloc(2 * sizeof(Review)),
         .len = 0 
     };
 
-    int secretPos = 0, publicPos = 0;
-    int numReviewers = public_in[0] % 8 + 2;
+    int numReviewers = PUBLIC_IN[0] % 8 + 2;
+    int secretPos = 0, publicPos = 1;
 
-    for (int i = 0; i < numReviewers && publicPos < public_len; i++) {
-        int reviewerID = 0;
-        int secLen = secret_len - secretPos;
+    for (int i = 0; i < numReviewers && publicPos < PUBLIC_LEN; i++) {
+        unsigned int reviewerID = 0;
+        int secLen = SECRET_LEN - secretPos;
         if (secLen == 0) {
             reviewerID = i;
         } else {
             int len = secLen < sizeof(reviewerID) ? secLen : sizeof(reviewerID);
 
             for (int j = secretPos; j < secretPos + len; j++) {
-                reviewerID |= secret_in[j] << 8 * (j - secretPos);
+                reviewerID |= (int)SECRET_IN[j] << 8 * (j - secretPos);
             }
 
             while (true) {
@@ -109,14 +100,14 @@ int main(void) {
         }
 
         int reviewScore = 1;
-        if (publicPos < public_len) {
-            reviewScore = public_in[publicPos++] % 4 + 1;
+        if (publicPos < PUBLIC_LEN) {
+            reviewScore = PUBLIC_IN[publicPos++] % 4 + 1;
         }
 
         int reviewLen = 0;
-        if (public_len - publicPos > 5) {
+        if (PUBLIC_LEN - publicPos > 5) {
             // 5-31 characers per review
-            reviewLen = public_in[publicPos] % (public_len - publicPos - 5) + 5;
+            reviewLen = PUBLIC_IN[publicPos] % (PUBLIC_LEN - publicPos - 5) + 5;
             publicPos++;
         } else {
             // Don't try forming a review with comment <5 chars long
@@ -126,7 +117,7 @@ int main(void) {
         char *reviewComment = malloc(reviewLen);
         char *tmp = reviewComment;
         for (int i = 0; i < reviewLen; i++) {
-            *tmp = public_in[publicPos++];
+            *tmp = PUBLIC_IN[publicPos++];
             // Overwrite any \0's so the string doesn't terminate early
             if (*tmp) tmp++;
         }

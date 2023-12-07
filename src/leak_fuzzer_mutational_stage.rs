@@ -295,6 +295,8 @@ where
 
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
         if metadata.bitflips_do_not_map || metadata.completed_deterministic_bitflips {
+            println!("bailing as bitflips_do_not_map is {} and completed_deterministic is {}",
+                     metadata.bitflips_do_not_map, metadata.completed_deterministic_bitflips);
             return Ok(());
         }
 
@@ -306,6 +308,7 @@ where
                 for (_, flips) in map {
                     if flips.len() > 1 { 
                         cur_dist = std::cmp::max(cur_dist, flips.last().unwrap() - flips[0]);
+                        println!("Setting cur_dist to {cur_dist}");
                     }
                 }
 
@@ -318,13 +321,20 @@ where
         let extra_bytes = (furthest_one_to_many_dist as f64 / 8f64).ceil() as usize;
         let mut secret = input.get_secret_part_bytes().to_vec();
         secret.append(&mut vec![0; extra_bytes]);
-        println!("Ok, extending input by {extra_bytes} bytes, now len: {}", secret.len());
+        println!("Ok, extending violation {:?} by {extra_bytes} bytes, now len: {}", violation_idx, secret.len());
 
-        let mut extended_input = <<Z as UsesState> ::State as UsesInput>::Input::from_pub_sec_bytes(
-            input.get_public_part_bytes(), &secret
-        );
-        self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
+        let mut extended_input ={
+            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+            testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(&secret);
+            testcase.input().as_ref().unwrap().to_owned()
+        };
         extended_input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        {
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+            metadata.bitflip_flips_output_bits = vec![];
+            metadata.ignored_output_bitflips = HashMap::new();
+        }
+        self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
         self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input)?;
         
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
@@ -337,16 +347,27 @@ where
             }
         }
 
+        let mut meta_len = 0;
         if unmapped_end_bitflips / 8 > 0 {
             let trimmed_secret_len = secret.len() - unmapped_end_bitflips / 8;
             let trimmed_secret = &secret[0..trimmed_secret_len];
             metadata.bitflip_flips_output_bits.truncate(8 * trimmed_secret_len);
+            meta_len = metadata.bitflip_flips_output_bits.len();
             let input = {
                 let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
                 testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(trimmed_secret);
                 testcase.input().as_ref().unwrap().to_owned()
             };
+            println!("Trimming {} unmapped_end_bits from secret ({:?}); new len: {}", unmapped_end_bitflips / 8, violation_idx, input.get_secret_part_bytes().len());
             self.collect_original_output_data(fuzzer, executor, state, manager, &input)?;
+        }
+
+        let testcase = state.violations().get(violation_idx).unwrap().borrow();
+        let input = testcase.input().as_ref().unwrap();
+        println!("Gonna check the length now (after trimmed {} bytes, to len {})!", unmapped_end_bitflips / 8, input.get_secret_part_bytes().len());
+        if unmapped_end_bitflips >= 8 && input.get_secret_part_bytes().len() * 8 != meta_len {
+            panic!("after trimming {} bytes from secret, ended up with {} bitflips in the map (should have {})",
+                unmapped_end_bitflips / 8, meta_len, 8 * input.get_secret_part_bytes().len());
         }
 
         Ok(())
@@ -427,10 +448,16 @@ where
 
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
             let map = metadata.bitflip_flips_output_bits.last().unwrap();
-            for (source, out_flips) in map {
+            for (&source, out_flips) in map {
+                if dupes.get(&source).is_none() { dupes.insert(source, HashSet::new()); }
+                let dupes_list = dupes.get_mut(&source).unwrap();
+
                 for out_flip in out_flips {
-                    if !seen_output_flips.get_mut(source).unwrap().insert(*out_flip) {
-                        dupes.get_mut(source).unwrap().insert(*out_flip);
+                    if let Some(flips) = seen_output_flips.get_mut(&source) {
+                        if !flips.insert(*out_flip) { dupes_list.insert(*out_flip); }
+                    } else {
+                        seen_output_flips.insert(source, HashSet::from_iter(vec![*out_flip].into_iter()));
+                        dupes_list.insert(*out_flip);
                     }
                 }
             }
@@ -444,14 +471,14 @@ where
         for bitflip_map in metadata.bitflip_flips_output_bits.iter_mut() {
             dupes.iter().for_each(|(source, flips)| {
                 if !flips.is_empty() {
+                    let before_len = bitflip_map.get(source).unwrap().len();
                     bitflip_map.get_mut(source).unwrap().retain(|x| !flips.contains(x));
+                    let after_len = bitflip_map.get(source).unwrap().len();
+                    if before_len > after_len { println!("Removed mapped bits, went from {before_len} to {after_len}"); }
                 }
             });
 
-            if !bitflip_map.iter()
-                .fold(false, |has_elems, (_source, flips)| has_elems || !flips.is_empty()) { 
-                mapped_bitflips += 1; 
-            }
+            bitflip_map.values().for_each(|flips| if !flips.is_empty() { mapped_bitflips += 1 });
         }
 
         println!("Removing dupes: {:?}", dupes);
@@ -528,6 +555,9 @@ where
             if bits_to_flip.len() <= 1 { break; }
 
             for bit in &bits_to_flip {
+                if bit / 8 >= secret.len() {
+                    println!("in violation {:?} input of len {} bits; selected bit {bit} from target bits {:?} to flip from full set {:?}", violation_idx, 8 * secret.len(), bits_to_flip, output_mapped_bits);
+                }
                 secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
             }
 

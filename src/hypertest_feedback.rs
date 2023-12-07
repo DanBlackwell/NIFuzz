@@ -553,9 +553,9 @@ where
                         });
                     }
 
-                    let excess_flips = flipped_bits.difference(&expected_bitflips);
+                    let excess_flips = filtered_flipped.difference(&expected_bitflips);
                     if excess_flips.clone().count() > 0 {
-                        println!("{} excess bitflips failed for this input bitflip combo: {:?}", 
+                        println!("{} excess bitflips for this input bitflip combo: {:?}", 
                             excess_flips.clone().count(), excess_flips.clone().copied().collect::<Vec<usize>>());
 
                         let ignored_flips = metadata.ignored_output_bitflips.get_mut(&source).unwrap();
