@@ -41,7 +41,6 @@ pub enum InputContentsFlags {
     SecretHeapMemory    = 0b0001_0000,
 }
 
-
 pub fn swap_bytes_in_ranges(buf: &mut Vec<u8>, range_1: Range<usize>, range_2: Range<usize>) {
     if (range_2.start >= range_1.start && range_2.start < range_1.end) ||
         (range_2.end > range_1.start && range_2.end < range_1.end) ||

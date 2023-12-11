@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     output_observer::{ObserverWithOutput, OutputObserver}, 
     pub_sec_input::{PubSecInput, InputContentsFlags}, 
-    output_feedback::{OutputDataRefs, OutputData}, leak_fuzzer_state::ViolationsTargetingApproach
+    output_feedback::OutputData, leak_fuzzer_state::ViolationsTargetingApproach
 };
 use crate::hypertest_feedback::HypertestFeedback;
 use crate::leak_fuzzer_state::HasViolations;

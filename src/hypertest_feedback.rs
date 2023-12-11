@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 use libafl_bolts::{ErrorBacktrace, Error};
 use libafl::prelude::Input;
-use crate::{output_feedback::{OutputData, OutputDataRefs, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach, pub_sec_input::InputContentsFlags};
+use crate::{output_feedback::{OutputData, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach, pub_sec_input::InputContentsFlags};
 use crate::pub_sec_input::PubSecInput;
 use crate::OutputObserver;
 use crate::output_observer::ObserverWithOutput;
@@ -41,6 +41,83 @@ pub struct LeakQuantifyMetadata {
     pub ignored_output_bitflips: HashMap<OutputSource, HashSet<usize>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct SecretInputParts {
+    explicit_secret_input: Option<Vec<u8>>,
+    stack_mem_input: Option<Vec<u8>>,
+    heap_mem_input: Option<Vec<u8>>,
+}
+
+impl SecretInputParts {
+    fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        macro_rules! update_hash {
+            ($field: expr) => {
+                if let Some(buf) = $field { buf.hash(&mut hasher); }
+            }
+        }
+        update_hash!(self.explicit_secret_input);
+        update_hash!(self.stack_mem_input);
+        update_hash!(self.heap_mem_input);
+        hasher.finish()
+    }
+
+    fn to_string(&self) -> String {
+        let dump = |buf: &Option<Vec<u8>>| {
+            if let Some(buf) = buf.as_ref() {
+                format!("{:?}", if buf.len() > 60 { buf[0..60].to_vec() } else { *buf })
+            } else {
+                "N/A".to_string()
+            }
+        };
+
+        format!("{{ explicit: {:?}, stack: {:?}, heap: {:?} }}",
+            dump(&self.explicit_secret_input),
+            dump(&self.stack_mem_input),
+            dump(&self.heap_mem_input)).to_string()
+    }
+
+    fn matches_secret_part_of_input<I>(&self, input: &I) -> bool 
+        where I: PubSecInput 
+    {
+        let mut matched = true;
+        macro_rules! check_equal {
+            ($field: expr, $flag: expr) => {
+                {
+                    let buf2 = input.get_part_bytes($flag);
+                    if $field.is_some() != buf2.is_some() {
+                        false // one is an empty optional, and the other not
+                    } else if self.explicit_secret_input.is_some() {
+                        self.explicit_secret_input.unwrap() == buf2.unwrap()
+                    } else {
+                        true // both are None
+                    }
+                }
+            };
+        }
+
+        check_equal!(self.explicit_secret_input, InputContentsFlags::SecretExplicitInput) &&
+        check_equal!(self.stack_mem_input, InputContentsFlags::SecretStackMemory) &&
+        check_equal!(self.heap_mem_input, InputContentsFlags::SecretHeapMemory)
+    }
+
+    fn from_input<I>(input: &I) -> Self
+        where I: PubSecInput 
+    {
+        Self {
+            explicit_secret_input: if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretExplicitInput) {
+                Some(buf.to_owned())
+            } else { None },
+            stack_mem_input: if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretStackMemory) {
+                Some(buf.to_owned())
+            } else { None },
+            heap_mem_input: if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretHeapMemory) {
+                Some(buf.to_owned())
+            } else { None },
+        }
+    }
+}
+
 /// struct storing associated data for a given public input 
 /// (including public outputs and secret inputs that witness a 
 /// leak)
@@ -72,7 +149,7 @@ pub struct IOHashValue {
 
     /// Vector of full byte arrays for secret inputs that can 
     /// witness a leak
-    pub secret_inputs_full: Vec<Vec<u8>>,
+    pub secret_inputs_full: Vec<SecretInputParts>,
     /// Vector of full public outputs that witness a leak
     pub public_outputs_full: Vec<OutputData>
 }
@@ -94,7 +171,7 @@ impl IOHashValue {
             self.secret_inputs_full
                 .iter()
                 .zip(self.public_outputs_full.iter())
-                .map(|(si, po)| (std::string::String::from_utf8_lossy(si).into_owned(), std::string::String::from_utf8_lossy(&po.stdout).into_owned()))
+                .map(|(si, po)| (si.to_string(), std::string::String::from_utf8_lossy(&po.stdout).into_owned()))
                 .collect::<Vec<(String, String)>>()
         )
     }
@@ -240,7 +317,7 @@ where
                 }
 
                 for secret_in in &hash_val.secret_inputs_full {
-                    if input.get_secret_part_bytes() == secret_in {
+                    if secret_in.matches_secret_part_of_input(input) {
                         panic!("Hash not found in hashes, but full input was?");
                     }
                 }
@@ -341,13 +418,13 @@ where
                     }
 
                     if let Some(sec_full_pos) = hash_val.secret_inputs_full.iter()
-                        .position(|buf| hash(buf) == sec_in_hash) 
+                        .position(|buf| buf.get_hash() == sec_in_hash) 
                     {
-                        if hash_val.secret_inputs_full[sec_full_pos] != input.get_secret_part_bytes() {
+                        if hash_val.secret_inputs_full[sec_full_pos].matches_secret_part_of_input(input) {
                             panic!("somehow hashes matched????");
                         }
                     } else {
-                        hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                        hash_val.secret_inputs_full.push(SecretInputParts::from_input(input));
                     }
 
                     // update mappings from output to secret_in
@@ -363,7 +440,11 @@ where
                 }
 
                 if hash_val.public_input_full.is_none() {
-                    hash_val.public_input_full = Some(input.get_public_part_bytes().to_vec());
+                    hash_val.public_input_full = Some(
+                        input.get_part_bytes(InputContentsFlags::PublicExplicitInput)
+                            .unwrap_or_else(|| &[])
+                            .to_vec()
+                    );
                     println!("Added violation pub_in: {}", pub_in_hash);
                     self.violation_pub_ins.push(pub_in_hash);
                 }
@@ -382,7 +463,7 @@ where
                 }
 
                 hash_val.secret_input_hashes.push(sec_in_hash);
-                hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                hash_val.secret_inputs_full.push(SecretInputParts::from_input(input));
                 hash_val.public_outputs_full.push(output_data.clone());
                 hash_val.public_output_hashes.push(pub_out_hash);
 
@@ -394,17 +475,16 @@ where
                     return Some((
                         FailingHypertest {
                             test_one: (
-                                I::from_pub_sec_bytes(
-                                    input.get_public_part_bytes(), 
-                                    &hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2]       
+                                I::from_bufs(
+                                    input.get_part_bytes(InputContentsFlags::PublicExplicitInput),
+                                    hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2].explicit_secret_input.as_deref(),
+                                    hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2].stack_mem_input.as_deref(), 
+                                    hash_val.secret_inputs_full[hash_val.secret_inputs_full.len() - 2].heap_mem_input.as_deref(), 
                                 ),
                                 &hash_val.public_outputs_full[hash_val.public_outputs_full.len() - 2]
                             ),
                             test_two: (
-                                I::from_pub_sec_bytes(
-                                    input.get_public_part_bytes(),
-                                    input.get_secret_part_bytes()
-                                ),
+                                input.clone(),
                                 &hash_val.public_outputs_full.last().unwrap()
                             ),
                         },
@@ -422,27 +502,26 @@ where
                 let pos = hash_val.public_output_hashes.iter().position(|&x| x == pub_out_hash).unwrap();
                 if pos < hash_val.public_outputs_full.len() {
                     hash_val.public_outputs_full.insert(pos, output_data.clone());
-                    hash_val.secret_inputs_full.insert(pos, input.get_secret_part_bytes().to_vec());
+                    hash_val.secret_inputs_full.insert(pos, SecretInputParts::from_input(input));
                 } else {
                     hash_val.public_outputs_full.push(output_data.clone());
-                    hash_val.secret_inputs_full.push(input.get_secret_part_bytes().to_vec());
+                    hash_val.secret_inputs_full.push(SecretInputParts::from_input(input));
                 }
                 hash_val.secret_input_hashes[pos] = sec_in_hash;
 
                 return Some((
                     FailingHypertest {
                         test_one: (
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(), 
-                                &hash_val.secret_inputs_full[1]       
+                            I::from_bufs(
+                                input.get_part_bytes(InputContentsFlags::PublicExplicitInput),
+                                hash_val.secret_inputs_full[1].explicit_secret_input.as_deref(),
+                                hash_val.secret_inputs_full[1].stack_mem_input.as_deref(), 
+                                hash_val.secret_inputs_full[1].heap_mem_input.as_deref(), 
                             ),
                             &hash_val.public_outputs_full[1]
                         ),
                         test_two: (
-                            I::from_pub_sec_bytes(
-                                input.get_public_part_bytes(),
-                                input.get_secret_part_bytes()
-                            ),
+                            input.clone(),
                             &hash_val.public_outputs_full[0]
                         ),
                     },
