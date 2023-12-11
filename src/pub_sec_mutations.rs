@@ -29,7 +29,7 @@ use libafl::{
     Error,
 };
 
-use crate::pub_sec_input::{PubSecInput, MutateTarget};
+use crate::pub_sec_input::{PubSecInput, MutateTarget, swap_bytes_in_ranges, InputContentsFlags};
 
 /// Bitflip mutation for inputs with a bytes vector
 #[derive(Default, Debug, Clone)]
@@ -54,7 +54,7 @@ where
         };
 
         let sample = state.rand_mut().next() as u32;
-        input.set_secret_part_bytes(&sample.to_ne_bytes());
+        input.update_current_buf_seg_from_bytes(&sample.to_ne_bytes());
         Ok(MutationResult::Mutated)
     }
 }
@@ -171,8 +171,10 @@ where
             Ok(MutationResult::Skipped)
         } else {
             let bit = 1 << state.rand_mut().choose(0..8);
-            let byte = state.rand_mut().choose(input.get_mutable_current_buf_seg());
+            let mut buf = input.get_current_buf_seg().to_owned();
+            let byte = state.rand_mut().choose(&mut buf);
             *byte ^= bit;
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -211,7 +213,9 @@ where
         if input.get_current_buf_seg().is_empty() {
             Ok(MutationResult::Skipped)
         } else {
-            *state.rand_mut().choose(input.get_mutable_current_buf_seg()) ^= 0xff;
+            let mut buf = input.get_current_buf_seg().to_owned();
+            *state.rand_mut().choose(&mut buf) ^= 0xff;
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -249,8 +253,10 @@ where
         if input.get_current_buf_seg().is_empty() {
             Ok(MutationResult::Skipped)
         } else {
-            let byte = state.rand_mut().choose(input.get_mutable_current_buf_seg());
+            let mut buf = input.get_current_buf_seg().to_owned();
+            let byte = state.rand_mut().choose(&mut buf);
             *byte = byte.wrapping_add(1);
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -288,8 +294,10 @@ where
         if input.get_current_buf_seg().is_empty() {
             Ok(MutationResult::Skipped)
         } else {
-            let byte = state.rand_mut().choose(input.get_mutable_current_buf_seg());
+            let mut buf = input.get_current_buf_seg().to_owned();
+            let byte = state.rand_mut().choose(&mut buf);
             *byte = byte.wrapping_sub(1);
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -327,8 +335,10 @@ where
         if input.get_current_buf_seg().is_empty() {
             Ok(MutationResult::Skipped)
         } else {
-            let byte = state.rand_mut().choose(input.get_mutable_current_buf_seg());
+            let mut buf = input.get_current_buf_seg().to_owned();
+            let byte = state.rand_mut().choose(&mut buf);
             *byte = (!(*byte)).wrapping_add(1);
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -366,8 +376,10 @@ where
         if input.get_current_buf_seg().is_empty() {
             Ok(MutationResult::Skipped)
         } else {
-            let byte = state.rand_mut().choose(input.get_mutable_current_buf_seg());
+            let mut buf = input.get_current_buf_seg().to_owned();
+            let byte = state.rand_mut().choose(&mut buf);
             *byte ^= 1 + state.rand_mut().below(254) as u8;
+            input.update_current_buf_seg_from_bytes(&buf);
             Ok(MutationResult::Mutated)
         }
     }
@@ -426,8 +438,10 @@ macro_rules! add_mutator_impl {
                     };
 
                     // set bytes to mutated value
-                    let new_bytes = &mut input.get_mutable_current_buf_seg()[index..index + size_of::<$size>()];
+                    let mut buf = input.get_current_buf_seg().to_owned();
+                    let new_bytes = &mut buf[index..index + size_of::<$size>()];
                     new_bytes.copy_from_slice(&new_val.to_ne_bytes());
+                    input.update_current_buf_seg_from_bytes(&buf);
                     Ok(MutationResult::Mutated)
                 }
             }
@@ -477,7 +491,7 @@ macro_rules! interesting_mutator_impl {
                 if input.get_current_buf_seg().len() < size_of::<$size>() {
                     Ok(MutationResult::Skipped)
                 } else {
-                    let bytes = input.get_mutable_current_buf_seg();
+                    let mut bytes = input.get_current_buf_seg().to_owned();
                     let upper_bound = (bytes.len() + 1 - size_of::<$size>()) as u64;
                     let idx = state.rand_mut().below(upper_bound) as usize;
                     let val = *state.rand_mut().choose(&$interesting) as $size;
@@ -486,6 +500,7 @@ macro_rules! interesting_mutator_impl {
                         _ => val.to_le_bytes(),
                     };
                     bytes[idx..idx + size_of::<$size>()].copy_from_slice(&new_bytes);
+                    input.update_current_buf_seg_from_bytes(&bytes);
                     Ok(MutationResult::Mutated)
                 }
             }
@@ -533,7 +548,9 @@ where
 
         let range = rand_range(state, size, size);
 
-        input.remove_bytes_in_range(range);
+        let mut buf = input.get_current_buf_seg().to_owned();
+        let _ = buf.drain(range);
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -576,8 +593,14 @@ where
         }
 
         let range = rand_range(state, size, min(16, max_size - size));
-        let to_copy = input.get_current_buf_seg()[range.start..range.end].to_owned();
-        input.insert_bytes_at_pos(&to_copy, range.start);
+        let mut to_copy = input.get_current_buf_seg()[range.start..range.end].to_owned();
+        let mut buf = input.get_current_buf_seg().to_owned();
+
+        let mut new = buf[0..range.start].to_vec();
+        new.append(&mut to_copy);
+        new.append(&mut buf[range.start..].to_vec());
+
+        input.update_current_buf_seg_from_bytes(&new);
 
         Ok(MutationResult::Mutated)
     }
@@ -629,9 +652,15 @@ where
             }
         }
 
-        let val = input.get_current_buf_seg()[state.rand_mut().below(size as u64) as usize];
-        let buf = vec![val; amount];
-        input.insert_bytes_at_pos(&buf, offset);
+        let orig = input.get_current_buf_seg();
+        let val = orig[state.rand_mut().below(size as u64) as usize];
+        let mut insert_buf = vec![val; amount];
+
+        let mut new = orig[0..offset].to_owned();
+        new.append(&mut insert_buf);
+        new.append(&mut orig[offset..].to_owned());
+
+        input.update_current_buf_seg_from_bytes(&new);
 
         Ok(MutationResult::Mutated)
     }
@@ -684,9 +713,14 @@ where
         }
 
         let val = state.rand_mut().next() as u8;
-        let buf = vec![val; amount];
+        let insert_buf = vec![val; amount];
 
-        input.insert_bytes_at_pos(&buf, offset);
+        let orig = input.get_current_buf_seg();
+        let mut new = orig[0..offset].to_owned();
+        new.append(&mut insert_buf);
+        new.append(&mut orig[offset..].to_owned());
+
+        input.update_current_buf_seg_from_bytes(&new);
 
         Ok(MutationResult::Mutated)
     }
@@ -729,7 +763,10 @@ where
 
         let val = *state.rand_mut().choose(input.get_current_buf_seg());
         let quantity = range.len();
-        buffer_set(input.get_mutable_current_buf_seg(), range.start, quantity, val);
+        let mut buf = input.get_current_buf_seg().to_owned();
+        buffer_set(&mut buf, range.start, quantity, val);
+        
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -772,7 +809,10 @@ where
 
         let val = state.rand_mut().next() as u8;
         let quantity = range.len();
-        buffer_set(input.get_mutable_current_buf_seg(), range.start, quantity, val);
+        let mut buf = input.get_current_buf_seg().to_owned();
+        buffer_set(&mut buf, range.start, quantity, val);
+
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -814,10 +854,13 @@ where
 
         let target = state.rand_mut().below(size as u64) as usize;
         let range = rand_range(state, size, size - target);
+        let mut buf = input.get_current_buf_seg().to_owned();
 
         unsafe {
-            buffer_self_copy(input.get_mutable_current_buf_seg(), range.start, target, range.len());
+            buffer_self_copy(&mut buf, range.start, target, range.len());
         }
+
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -864,8 +907,14 @@ where
         let max_insert_len = min(size - target, state.max_size() - size);
         let range = rand_range(state, size, min(16, max_insert_len));
 
-        self.tmp_buf = input.get_current_buf_seg()[range].to_vec();
-        input.insert_bytes_at_pos(&self.tmp_buf, target);
+        let orig = input.get_current_buf_seg().to_owned();
+        self.tmp_buf = orig[range].to_vec();
+
+        let mut buf = orig[0..target].to_owned();
+        buf.append(&mut self.tmp_buf.to_owned());
+        buf.append(&mut orig[target..].to_owned());
+
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -906,11 +955,13 @@ where
             return Ok(MutationResult::Skipped);
         }
 
+        let mut buf = input.get_current_buf_seg().to_owned();
         let first = rand_range(state, size, size);
         if state.rand_mut().next() & 1 == 0 && first.start != 0 {
             // The second range comes before first.
             let second = rand_range(state, first.start, first.start);
-            input.swap_bytes_in_ranges(first, second);
+            swap_bytes_in_ranges(&mut buf, first, second);
+            input.update_current_buf_seg_from_bytes(&buf);
             
             Ok(MutationResult::Mutated)
         } else if first.end != size {
@@ -918,7 +969,8 @@ where
             let mut second = rand_range(state, size - first.end, size - first.end);
             second.start += first.end;
             second.end += first.end;
-            input.swap_bytes_in_ranges(first, second);
+            swap_bytes_in_ranges(&mut buf, first, second);
+            input.update_current_buf_seg_from_bytes(&buf);
 
             Ok(MutationResult::Mutated)
         } else {
@@ -991,7 +1043,12 @@ where
         let other = other_testcase.input_mut().as_ref().unwrap();
         let other_bytes = &other.get_current_buf_seg()[range];
 
-        input.insert_bytes_at_pos(&other_bytes, target);
+        let orig = input.get_current_buf_seg();
+        let mut buf = orig[0..target].to_owned();
+        buf.append(&mut other_bytes.to_owned());
+        buf.append(&mut orig[target..].to_owned());
+
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -1059,8 +1116,9 @@ where
         let other = other_testcase.input_mut().as_ref().unwrap();
         let other_bytes = &other.get_current_buf_seg()[range];
 
-        input.get_mutable_current_buf_seg()[target..(target + other_bytes.len())]
-            .copy_from_slice(&other_bytes);
+        let mut buf = input.get_current_buf_seg().to_owned();
+        buf.copy_from_slice(&other_bytes);
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -1151,8 +1209,12 @@ where
             split_at + other_bytes.len()
         };
 
-        input.remove_bytes_in_range(split_at..split_end);
-        input.insert_bytes_at_pos(other_bytes, split_at);
+        let orig = input.get_current_buf_seg();
+        let mut buf = orig[0..split_at].to_owned();
+        buf.append(&mut other_bytes.to_owned());
+        buf.append(&mut orig[split_end..].to_owned());
+
+        input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)
     }
@@ -1189,9 +1251,9 @@ where
         input: &mut S::Input,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        if input.get_current_mutate_target() == MutateTarget::AllExplicitInputs {
-            return Ok(MutationResult::Skipped);
-        }
+        // if input.get_current_mutate_target() == MutateTarget::AllExplicitInputs {
+        //     return Ok(MutationResult::Skipped);
+        // }
 
         // We don't want to use the testcase we're already using for splicing
         let idx = random_corpus_id!(state.corpus(), state.rand_mut());
@@ -1205,13 +1267,12 @@ where
         // No need to load the input again, it'll still be cached.
         let other = other_testcase.input_mut().as_ref().unwrap();
         let other_bytes = match input.get_current_mutate_target() {
-            MutateTarget::PublicExplicitInput => other.get_public_part_bytes(),
-            MutateTarget::SecretExplicitInput => other.get_secret_part_bytes(),
-            MutateTarget::AllExplicitInputs => panic!(),
-            _ => panic!("PubSecInput does not implement {:?}", input.get_current_mutate_target()),
+            MutateTarget::PublicExplicitInput => other.get_part_bytes(InputContentsFlags::PublicExplicitInput),
+            MutateTarget::SecretExplicitInput => other.get_part_bytes(InputContentsFlags::SecretExplicitInput),
+            _ => panic!("Should not be using this mutator with {:?}", input.get_current_mutate_target()),
         };
 
-        input.update_current_from_bytes(other_bytes);
+        input.update_current_buf_seg_from_bytes(other_bytes);
 
         Ok(MutationResult::Mutated)
     }

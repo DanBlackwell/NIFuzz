@@ -113,10 +113,10 @@ pub trait PubSecInput: Input + HasTargetBytes {
     fn set_current_mutate_target(&mut self, new_target: MutateTarget);
 
     // fn get_current_bytesinput(&self) -> BytesInput;
-    fn update_current_from_bytes(&mut self, mutated_input: &[u8]);
+    fn update_current_buf_seg_from_bytes(&mut self, mutated_input: &[u8]);
 
     fn get_current_buf_seg(&self) -> &[u8];
-    fn get_mutable_current_buf_seg(&mut self) -> &mut [u8];
+    // fn get_mutable_current_buf_seg(&mut self) -> &mut [u8];
 
     fn get_total_len(&self) -> usize;
     fn get_raw_bytes(&self) -> &[u8];
@@ -287,7 +287,7 @@ impl PubSecInput for PubSecBytesInput {
     //     )
     // }
 
-    fn update_current_from_bytes(&mut self, mutated_input: &[u8]) {
+    fn update_current_buf_seg_from_bytes(&mut self, mutated_input: &[u8]) {
         match self.current_mutate_target {
             MutateTarget::PublicExplicitInput => 
                 self.set_part_bytes(InputContentsFlags::PublicExplicitInput, mutated_input),
