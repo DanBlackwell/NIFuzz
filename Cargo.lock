@@ -368,6 +368,7 @@ version = "0.8.2"
 dependencies = [
  "ahash",
  "base64",
+ "bitflags 2.4.1",
  "cc",
  "clap",
  "hashbrown 0.14.0",

@@ -21,7 +21,7 @@ use libafl_bolts::rands::Rand;
 use crate::{
     leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
     pub_sec_mutations::SecretUniformMutator, 
-    pub_sec_input::{PubSecInput, CurrentMutateTarget}, 
+    pub_sec_input::{PubSecInput, MutateTarget}, 
     output_leak_fuzzer::HasHypertestFeedback, 
     hypertest_feedback::HypertestFeedback, output_feedback::OutputSource
 };
@@ -128,17 +128,17 @@ where
         let mut phase = 0;
         let mut cached_input = input.clone();
    
-        let iters = if orig_mutate_target == CurrentMutateTarget::All { num * 2 } else { num };
+        let iters = if orig_mutate_target == MutateTarget::AllExplicitInputs { num * 2 } else { num };
         for i in 0..iters {
 
-            let mut input = if orig_mutate_target == CurrentMutateTarget::All {
+            let mut input = if orig_mutate_target == MutateTarget::AllExplicitInputs {
                 match phase {
                     0 => {
-                        input.set_current_mutate_target(CurrentMutateTarget::Public);
+                        input.set_current_mutate_target(MutateTarget::PublicExplicitInput);
                         input.clone()
                     },
                     _ => { 
-                        input.set_current_mutate_target(CurrentMutateTarget::Secret);
+                        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
                         cached_input.clone()
                     },
                 }
@@ -158,7 +158,7 @@ where
                 continue;
             }
 
-            if orig_mutate_target == CurrentMutateTarget::All {
+            if orig_mutate_target == MutateTarget::AllExplicitInputs {
                 if phase == 0 { cached_input = input.clone(); }
                 phase = (phase + 1) % 3;
             }
@@ -176,9 +176,10 @@ where
         let mut testcase = state.corpus().get(corpus_idx)?.borrow_mut();
         let input_ref = testcase.input_mut().as_mut().unwrap();
         let next_target = match input_ref.get_current_mutate_target() {
-            CurrentMutateTarget::All => CurrentMutateTarget::Public,
-            CurrentMutateTarget::Public => CurrentMutateTarget::Secret,
-            CurrentMutateTarget::Secret => CurrentMutateTarget::All
+            MutateTarget::AllExplicitInputs => MutateTarget::PublicExplicitInput,
+            MutateTarget::PublicExplicitInput => MutateTarget::SecretExplicitInput,
+            MutateTarget::SecretExplicitInput => MutateTarget::AllExplicitInputs,
+            _ => panic!("PubSecInput does not implement {:?}", input_ref.get_current_mutate_target()),
         };
         input_ref.set_current_mutate_target(next_target);
 
@@ -286,7 +287,7 @@ where
             }
         }
         println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
-        input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
         let cur = input.get_mutable_current_buf_seg().to_owned();
         assert!(input.get_secret_part_bytes() == cur);
         assert!(cur.len() > 0);
@@ -328,7 +329,7 @@ where
             testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(&secret);
             testcase.input().as_ref().unwrap().to_owned()
         };
-        extended_input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        extended_input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
         {
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
             metadata.bitflip_flips_output_bits = vec![];
@@ -516,7 +517,7 @@ where
 
 
         let mut input = input.clone();
-        input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
         let sec_len_bits = 8 * input.get_secret_part_bytes().len();
 
         for stage in 0..sec_len_bits {

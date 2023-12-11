@@ -29,7 +29,7 @@ use libafl::{
     Error,
 };
 
-use crate::pub_sec_input::{PubSecInput, CurrentMutateTarget};
+use crate::pub_sec_input::{PubSecInput, MutateTarget};
 
 /// Bitflip mutation for inputs with a bytes vector
 #[derive(Default, Debug, Clone)]
@@ -46,10 +46,10 @@ where
         input: &mut I,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        input.set_current_mutate_target(CurrentMutateTarget::Secret);
+        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
 
         match input.get_current_mutate_target() {
-            CurrentMutateTarget::Secret => (),
+            MutateTarget::SecretExplicitInput => (),
             _ => panic!("Should have current mutate target set to secret")
         };
 
@@ -1189,7 +1189,7 @@ where
         input: &mut S::Input,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        if input.get_current_mutate_target() == CurrentMutateTarget::All {
+        if input.get_current_mutate_target() == MutateTarget::AllExplicitInputs {
             return Ok(MutationResult::Skipped);
         }
 
@@ -1205,9 +1205,10 @@ where
         // No need to load the input again, it'll still be cached.
         let other = other_testcase.input_mut().as_ref().unwrap();
         let other_bytes = match input.get_current_mutate_target() {
-            CurrentMutateTarget::Public => other.get_public_part_bytes(),
-            CurrentMutateTarget::Secret => other.get_secret_part_bytes(),
-            CurrentMutateTarget::All => panic!(),
+            MutateTarget::PublicExplicitInput => other.get_public_part_bytes(),
+            MutateTarget::SecretExplicitInput => other.get_secret_part_bytes(),
+            MutateTarget::AllExplicitInputs => panic!(),
+            _ => panic!("PubSecInput does not implement {:?}", input.get_current_mutate_target()),
         };
 
         input.update_current_from_bytes(other_bytes);
