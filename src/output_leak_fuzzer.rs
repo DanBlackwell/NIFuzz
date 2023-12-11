@@ -7,7 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     output_observer::{ObserverWithOutput, OutputObserver}, 
-    pub_sec_input::PubSecInput, 
+    pub_sec_input::{PubSecInput, InputContentsFlags}, 
     output_feedback::{OutputDataRefs, OutputData}, leak_fuzzer_state::ViolationsTargetingApproach
 };
 use crate::hypertest_feedback::HypertestFeedback;
@@ -310,7 +310,8 @@ where
     {
         let exit_kind = self.execute_input(state, executor, manager, &input)?;
         if exit_kind == ExitKind::Timeout { 
-            println!("Timeout on input with pub len: {}, sec len: {}", input.get_public_part_bytes().len(), input.get_secret_part_bytes().len()); 
+            // println!("Timeout on input with pub len: {}, sec len: {}", 
+            //     input.get_public_part_bytes().len(), input.get_secret_part_bytes().len()); 
             // println!("{:?}", input.get_raw_bytes());
             self.scheduler.on_evaluation(state, &input, executor.observers())?;
             return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
@@ -401,7 +402,8 @@ where
                     Some((ref failing_hypertest, is_new_violation)) => { 
                         if is_new_violation {
                             println!("Found new violation!");
-                            assert!(failing_hypertest.test_one.0.get_public_part_bytes() == failing_hypertest.test_two.0.get_public_part_bytes());
+                            assert!(failing_hypertest.test_one.0.get_public_input_hash() ==
+                                    failing_hypertest.test_two.0.get_public_input_hash());
                             assert!(failing_hypertest.test_one.1 != failing_hypertest.test_two.1);
                             let t1in = failing_hypertest.test_one.0.clone();
                             let t1out = failing_hypertest.test_one.1.clone();
@@ -435,28 +437,53 @@ where
 
                             macro_rules! maybe_truncate {
                                 ($arr:expr) => {
-                                    if $arr.len() > 120 { &$arr[..120] } else { $arr }
+                                    if $arr.len() > 60 { &$arr[..60] } else { $arr }
                                 };
                             }
 
-                            println!("  test 1 in : {:?}", maybe_truncate!(t1in.get_secret_part_bytes()));
+                            macro_rules! get_part {
+                                ($testcase: ident, $flag: expr) => {
+                                    if let Some(part) = $testcase.get_part_bytes($flag) {
+                                        format!("{:?}", maybe_truncate!(part))
+                                    } else {
+                                        "N/A".to_string()
+                                    }
+                                }
+                            }
+
+                            println!("  test 1 in : {{ explicit_secret: {:?}, stack_mem: {:?}, heap_mem: {:?} }}", 
+                                get_part!(t1in, InputContentsFlags::SecretExplicitInput),
+                                get_part!(t1in, InputContentsFlags::SecretStackMemory),
+                                get_part!(t1in, InputContentsFlags::SecretHeapMemory),
+                            );
                             let t1_output = t1out.to_string();
                             let t1_chars = t1_output.chars().into_iter().collect::<Vec<char>>();
                             let t1_trunc = maybe_truncate!(&t1_chars);
                             println!("  test 1 out: {}", t1_trunc.into_iter().collect::<String>());
-                            println!("  test 2 in : {:?}", maybe_truncate!(t2in.get_secret_part_bytes()));
+
+                            println!("  test 2 in : {{ explicit_secret: {:?}, stack_mem: {:?}, heap_mem: {:?} }}", 
+                                get_part!(t2in, InputContentsFlags::SecretExplicitInput),
+                                get_part!(t2in, InputContentsFlags::SecretStackMemory),
+                                get_part!(t2in, InputContentsFlags::SecretHeapMemory),
+                            );
                             let t2_output = t2out.to_string();
                             let t2_chars = t2_output.chars().into_iter().collect::<Vec<char>>();
                             let t2_trunc = maybe_truncate!(&t2_chars);
                             println!("  test 2 out: {}", t2_trunc.into_iter().collect::<String>());
 
-                            assert!(t1in.get_secret_part_bytes().len() > 0 ||
-                                    t2in.get_secret_part_bytes().len() > 0);
+                            macro_rules! secret_is_not_empty {
+                                ($testcase: ident) => {
+                                    !$testcase.get_part_bytes(InputContentsFlags::SecretExplicitInput).unwrap_or_else(|| &[]).is_empty() ||
+                                    !$testcase.get_part_bytes(InputContentsFlags::SecretStackMemory).unwrap_or_else(|| &[]).is_empty() ||
+                                    !$testcase.get_part_bytes(InputContentsFlags::SecretHeapMemory).unwrap_or_else(|| &[]).is_empty()
+                                }
+                            }
+                            assert!(secret_is_not_empty!(t1in) || secret_is_not_empty!(t2in));
 
-                            let (quanti_input, quanti_out) = if t1in.get_secret_part_bytes().is_empty() {
-                                (t2in, t2out)
-                            } else {
+                            let (quanti_input, quanti_out) = if secret_is_not_empty!(t1in) {
                                 (t1in, t1out)
+                            } else {
+                                (t2in, t2out)
                             };
                             let cloned_out = quanti_out.to_owned();
 
@@ -464,7 +491,7 @@ where
                                 for idx in state.violations().ids() {
                                     let testcase = state.violations().get(idx).unwrap().borrow();
                                     let input = testcase.input().as_ref().unwrap();
-                                    if *input.get_public_part_bytes() == *quanti_input.get_public_part_bytes() {
+                                    if input.get_public_input_hash() == quanti_input.get_public_input_hash() {
                                         panic!("public input for new violation matched that at idx {:?}", idx);
                                     }
                                 }

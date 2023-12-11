@@ -1,6 +1,5 @@
 extern crate alloc;
 use alloc::{borrow::ToOwned, rc::Rc, string::String, vec::Vec};
-use bitflags::bitflags;
 use core::{
     cell::RefCell,
     convert::{From, AsRef},
@@ -23,7 +22,7 @@ use base64::{Engine, engine::general_purpose};
 #[cfg(feature = "std")]
 use libafl_bolts::{fs::write_file_atomic, Error};
 use libafl_bolts::{ownedref::OwnedSlice, HasLen};
-use libafl::inputs::{BytesInput, HasTargetBytes, Input};
+use libafl::inputs::{HasTargetBytes, Input};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum MutateTarget {
@@ -99,7 +98,7 @@ pub trait PubSecInput: Input + HasTargetBytes {
     ) -> Self;
     // fn from_pub_sec_bytes(public: &[u8], secret: &[u8]) -> Self;
 
-    fn get_part_bytes(&self, part: InputContentsFlags) -> &[u8];
+    fn get_part_bytes(&self, part: InputContentsFlags) -> Option<&[u8]>;
     fn set_part_bytes(&mut self, part: InputContentsFlags, new_buf: &[u8]);
 
     // fn get_public_part_bytes(&self) -> Option<&[u8]>;
@@ -186,15 +185,19 @@ impl PubSecInput for PubSecBytesInput {
     //     assert!(self.raw_bytes.len() == 4 + self.explicit_public_len + self.explicit_secret_len);
     // }
 
-    fn get_part_bytes(&self, part: InputContentsFlags) -> &[u8] {
-        let start_offset = self.get_start_offset_for_part(part);
-        let end = start_offset + match part {
-            InputContentsFlags::PublicExplicitInput => self.explicit_public_len.unwrap(),
-            InputContentsFlags::SecretExplicitInput => self.explicit_secret_len.unwrap(),
-            InputContentsFlags::SecretStackMemory => self.stack_mem_secret_len.unwrap(),
-            InputContentsFlags::SecretHeapMemory => self.heap_mem_secret_len.unwrap(),
-        };
-        &self.raw_bytes[start_offset..end]
+    fn get_part_bytes(&self, part: InputContentsFlags) -> Option<&[u8]> {
+        if let Some(len) = match part {
+            InputContentsFlags::PublicExplicitInput => self.explicit_public_len,
+            InputContentsFlags::SecretExplicitInput => self.explicit_secret_len,
+            InputContentsFlags::SecretStackMemory => self.stack_mem_secret_len,
+            InputContentsFlags::SecretHeapMemory => self.heap_mem_secret_len,
+        } {
+            let start_offset = self.get_start_offset_for_part(part);
+            let end = start_offset + len;
+            Some(&self.raw_bytes[start_offset..end])
+        } else {
+            None
+        }
     }
 
     fn set_part_bytes(&mut self, part: InputContentsFlags, new_buf: &[u8]) {
@@ -250,20 +253,20 @@ impl PubSecInput for PubSecBytesInput {
         if self.explicit_public_len.is_none() { return 0; }
 
         let mut hasher = DefaultHasher::new();
-        self.get_part_bytes(InputContentsFlags::PublicExplicitInput).hash(&mut hasher);
+        self.get_part_bytes(InputContentsFlags::PublicExplicitInput).unwrap().hash(&mut hasher);
         hasher.finish()
     }
 
     fn get_secret_input_hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         if self.explicit_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretExplicitInput).hash(&mut hasher);
+            self.get_part_bytes(InputContentsFlags::SecretExplicitInput).unwrap().hash(&mut hasher);
         }
         if self.stack_mem_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretStackMemory).hash(&mut hasher);
+            self.get_part_bytes(InputContentsFlags::SecretStackMemory).unwrap().hash(&mut hasher);
         }
         if self.heap_mem_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretHeapMemory).hash(&mut hasher);
+            self.get_part_bytes(InputContentsFlags::SecretHeapMemory).unwrap().hash(&mut hasher);
         }
         hasher.finish()
     }
@@ -378,7 +381,7 @@ impl Input for PubSecBytesInput {
         macro_rules! try_encode_and_append {
             ($len: expr, $flag: expr, $field: literal) => {
                 if $len.is_some() {
-                    let b64 = general_purpose::STANDARD.encode(self.get_part_bytes($flag));
+                    let b64 = general_purpose::STANDARD.encode(self.get_part_bytes($flag).unwrap());
                     json.push_str(format!(concat!("  \"", $field, "\": \"{}\",\n"), b64).as_str());
                 }
             };
@@ -433,7 +436,7 @@ impl Input for PubSecBytesInput {
                 ))
             },
             _ => panic!("is not a JSON object!")
-        };
+        }
     }
 
     /// Generate a name for this input

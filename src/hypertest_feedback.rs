@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 use libafl_bolts::{ErrorBacktrace, Error};
 use libafl::prelude::Input;
-use crate::{output_feedback::{OutputData, OutputDataRefs, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach};
+use crate::{output_feedback::{OutputData, OutputDataRefs, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach, pub_sec_input::InputContentsFlags};
 use crate::pub_sec_input::PubSecInput;
 use crate::OutputObserver;
 use crate::output_observer::ObserverWithOutput;
@@ -190,7 +190,9 @@ where
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if let Some(full) = hash_val.public_input_full.as_ref() {
-                debug_assert!(input.get_public_part_bytes() == full);
+                debug_assert!(
+                    input.get_part_bytes(InputContentsFlags::PublicExplicitInput).unwrap_or_else(|| &[]) == full
+                );
             }
 
             hash_val.hits += 1;

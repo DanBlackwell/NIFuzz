@@ -1267,8 +1267,8 @@ where
         // No need to load the input again, it'll still be cached.
         let other = other_testcase.input_mut().as_ref().unwrap();
         let other_bytes = match input.get_current_mutate_target() {
-            MutateTarget::PublicExplicitInput => other.get_part_bytes(InputContentsFlags::PublicExplicitInput),
-            MutateTarget::SecretExplicitInput => other.get_part_bytes(InputContentsFlags::SecretExplicitInput),
+            MutateTarget::PublicExplicitInput => other.get_part_bytes(InputContentsFlags::PublicExplicitInput).unwrap(),
+            MutateTarget::SecretExplicitInput => other.get_part_bytes(InputContentsFlags::SecretExplicitInput).unwrap(),
             _ => panic!("Should not be using this mutator with {:?}", input.get_current_mutate_target()),
         };
 
