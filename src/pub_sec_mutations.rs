@@ -713,7 +713,7 @@ where
         }
 
         let val = state.rand_mut().next() as u8;
-        let insert_buf = vec![val; amount];
+        let mut insert_buf = vec![val; amount];
 
         let orig = input.get_current_buf_seg();
         let mut new = orig[0..offset].to_owned();

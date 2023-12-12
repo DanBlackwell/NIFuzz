@@ -53,7 +53,7 @@ impl SecretInputParts {
         let mut hasher = DefaultHasher::new();
         macro_rules! update_hash {
             ($field: expr) => {
-                if let Some(buf) = $field { buf.hash(&mut hasher); }
+                if let Some(ref buf) = $field { buf.hash(&mut hasher); }
             }
         }
         update_hash!(self.explicit_secret_input);
@@ -65,7 +65,7 @@ impl SecretInputParts {
     fn to_string(&self) -> String {
         let dump = |buf: &Option<Vec<u8>>| {
             if let Some(buf) = buf.as_ref() {
-                format!("{:?}", if buf.len() > 60 { buf[0..60].to_vec() } else { *buf })
+                format!("{:?}", if buf.len() > 60 { buf[0..60].to_vec() } else { buf.to_vec() })
             } else {
                 "N/A".to_string()
             }
@@ -88,7 +88,7 @@ impl SecretInputParts {
                     if $field.is_some() != buf2.is_some() {
                         false // one is an empty optional, and the other not
                     } else if self.explicit_secret_input.is_some() {
-                        self.explicit_secret_input.unwrap() == buf2.unwrap()
+                        self.explicit_secret_input.as_ref().unwrap() == buf2.unwrap()
                     } else {
                         true // both are None
                     }

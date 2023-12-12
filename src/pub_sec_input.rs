@@ -420,7 +420,8 @@ impl Input for PubSecBytesInput {
                 macro_rules! parse {
                     ($field: literal) => {
                         if let Ok(buf) = parse_field(&map, $field) {
-                            Some(&general_purpose::STANDARD.decode(buf).unwrap())
+                            let raw = general_purpose::STANDARD.decode(buf).unwrap();
+                            Some(raw)
                         } else {
                             None
                         }
@@ -428,10 +429,10 @@ impl Input for PubSecBytesInput {
                 }
 
                 Ok(PubSecBytesInput::from_bufs(
-                    parse!("EXPLICIT_PUBLIC"),
-                    parse!("EXPLICIT_SECRET"),
-                    parse!("STACK_MEM_SECRET"),
-                    parse!("HEAP_MEM_SECRET")
+                    parse!("EXPLICIT_PUBLIC").as_deref(),
+                    parse!("EXPLICIT_SECRET").as_deref(),
+                    parse!("STACK_MEM_SECRET").as_deref(),
+                    parse!("HEAP_MEM_SECRET").as_deref()
                 ))
             },
             _ => panic!("is not a JSON object!")

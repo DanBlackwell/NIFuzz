@@ -15,15 +15,15 @@ use libafl::{
     stages::{Stage, MutationalStage, mutational::MutatedTransformPost},
     start_timer,
     state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState},
-    Error, HasScheduler,
+    Error, HasScheduler, executors::HasObservers,
 };
-use libafl_bolts::rands::Rand;
+use libafl_bolts::{rands::Rand, tuples::MatchName};
 use crate::{
     leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
     pub_sec_mutations::SecretUniformMutator, 
-    pub_sec_input::{PubSecInput, MutateTarget}, 
+    pub_sec_input::{PubSecInput, MutateTarget, InputContentsFlags}, 
     output_leak_fuzzer::HasHypertestFeedback, 
-    hypertest_feedback::HypertestFeedback, output_feedback::OutputSource
+    hypertest_feedback::HypertestFeedback, output_feedback::OutputSource, output_observer::OutputObserver
 };
 
 /// The default mutational stage
@@ -37,7 +37,7 @@ pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z> {
 
 impl<E, EM, I, M, Z> MutationalStage<E, EM, I, M, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
-    E: UsesState<State = Z::State>,
+    E: UsesState<State = Z::State> + HasObservers,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
     Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
@@ -72,35 +72,28 @@ where
         manager: &mut EM,
         corpus_idx: CorpusId,
     ) -> Result<(), Error> {
-        let num = self.iterations(state, corpus_idx)?;
-
         start_timer!(state);
         if state.targeting_violations() != ViolationsTargetingApproach::None {
             // We'll mutate the secret part of the input by selecting from uniform
             let idx = state.violations().current().unwrap();
             let mut testcase = state.violations().get(idx)?.borrow_mut();
-
             let Ok(input) = I::try_transform_from(&mut testcase, state, idx) else { return Ok(()); };
+            drop(testcase);
+            mark_feature_time!(state, PerfFeature::GetInputFromCorpus);
 
             match state.targeting_violations() {
                 ViolationsTargetingApproach::SingleBitFlips => {
-                    drop(testcase);
                     self.find_leaked_bitflips(fuzzer, executor, state, manager, idx)?;
                 },
                 ViolationsTargetingApproach::RandomBitFlips => {
-                    drop(testcase);
                     self.leak_test_random_bitflip_combos(fuzzer, executor, state, manager, idx)?;
                 },
                 ViolationsTargetingApproach::UniformSampling => {
-                    drop(testcase);
-
                     for i in 0..1_000 {
                         let mut input = input.clone();
         
                         let mutated = self.uniform_mutator.mutate(state, &mut input, i as i32)?;
-                        if mutated == MutationResult::Skipped {
-                            panic!("This mutator shouldn't have skipped anything...");
-                        }
+                        if mutated == MutationResult::Skipped { panic!("This mutator should never skip..."); }
                         
                         // Time is measured directly the `evaluate_input` function
                         let (untransformed, post) = input.try_transform_into(state)?;
@@ -125,60 +118,37 @@ where
 
         mark_feature_time!(state, PerfFeature::GetInputFromCorpus);
         let orig_mutate_target = input.get_current_mutate_target();
-        let mut phase = 0;
-        let mut cached_input = input.clone();
-   
-        let iters = if orig_mutate_target == MutateTarget::AllExplicitInputs { num * 2 } else { num };
-        for i in 0..iters {
+        match orig_mutate_target {
+            MutateTarget::All => self.run_hypertests(fuzzer, executor, state, manager, corpus_idx, &input)?,
+            _ => {
+                let num = self.iterations(state, corpus_idx)?;
+                for i in 0..num {
+                    let mut input = input.clone();
 
-            let mut input = if orig_mutate_target == MutateTarget::AllExplicitInputs {
-                match phase {
-                    0 => {
-                        input.set_current_mutate_target(MutateTarget::PublicExplicitInput);
-                        input.clone()
-                    },
-                    _ => { 
-                        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-                        cached_input.clone()
-                    },
+                    start_timer!(state);
+                    let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
+                    mark_feature_time!(state, PerfFeature::Mutate);
+
+                    if mutated == MutationResult::Skipped { continue; }
+
+                    // Time is measured directly the `evaluate_input` function
+                    let (untransformed, post) = input.try_transform_into(state)?;
+                    let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        
+                    start_timer!(state);
+                    self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+                    post.post_exec(state, i as i32, corpus_idx)?;
+                    mark_feature_time!(state, PerfFeature::MutatePostExec);
                 }
-            } else {
-                input.clone()
-            };
-
-            // let (pub_before, sec_before) = (input.get_public_part_bytes().len(), input.get_secret_part_bytes().len());
-   
-            start_timer!(state);
-            let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
-            mark_feature_time!(state, PerfFeature::Mutate);
-
-            // println!("mutated from pub: {pub_before}, sec: {sec_before}. to pub: {}, sec: {}", input.get_public_part_bytes().len(), input.get_secret_part_bytes().len());
-   
-            if mutated == MutationResult::Skipped {
-                continue;
             }
-
-            if orig_mutate_target == MutateTarget::AllExplicitInputs {
-                if phase == 0 { cached_input = input.clone(); }
-                phase = (phase + 1) % 3;
-            }
-   
-            // Time is measured directly the `evaluate_input` function
-            let (untransformed, post) = input.try_transform_into(state)?;
-            let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
-   
-            start_timer!(state);
-            self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-            post.post_exec(state, i as i32, corpus_idx)?;
-            mark_feature_time!(state, PerfFeature::MutatePostExec);
         }
 
         let mut testcase = state.corpus().get(corpus_idx)?.borrow_mut();
         let input_ref = testcase.input_mut().as_mut().unwrap();
         let next_target = match input_ref.get_current_mutate_target() {
-            MutateTarget::AllExplicitInputs => MutateTarget::PublicExplicitInput,
+            MutateTarget::All => MutateTarget::PublicExplicitInput,
             MutateTarget::PublicExplicitInput => MutateTarget::SecretExplicitInput,
-            MutateTarget::SecretExplicitInput => MutateTarget::AllExplicitInputs,
+            MutateTarget::SecretExplicitInput => MutateTarget::All,
             _ => panic!("PubSecInput does not implement {:?}", input_ref.get_current_mutate_target()),
         };
         input_ref.set_current_mutate_target(next_target);
@@ -200,7 +170,7 @@ where
 
 impl<E, EM, I, M, Z> Stage<E, EM, Z> for LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
-    E: UsesState<State = Z::State>,
+    E: UsesState<State = Z::State> + HasObservers,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
     Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
@@ -261,7 +231,7 @@ where
 
 impl<E, EM, I, M, Z> LeakFuzzerMutationalStage<E, EM, I, M, Z>
 where
-    E: UsesState<State = Z::State>,
+    E: UsesState<State = Z::State> + HasObservers,
     EM: UsesState<State = Z::State>,
     M: Mutator<I, Z::State>,
     Z: Evaluator<E, EM> + HasScheduler + HasHypertestFeedback,
@@ -269,6 +239,63 @@ where
     <<Z as UsesState>::State as UsesInput>::Input: PubSecInput,
     I: MutatedTransform<<Self as UsesInput>::Input, <Self as UsesState>::State> + Clone + PubSecInput,
 {
+    pub fn run_hypertests(
+        &mut self,
+        fuzzer: &mut Z,
+        executor: &mut E,
+        state: &mut Z::State,
+        manager: &mut EM,
+        corpus_idx: CorpusId,
+        input: &I
+    ) -> Result<(), Error> {
+        let mut phase = 0;
+        let mut original_input = input.clone();
+        original_input.set_current_mutate_target(MutateTarget::PublicExplicitInput);
+        let mut cached_input = input.clone();
+   
+        let num = self.iterations(state, corpus_idx)?;
+        // do double the number of iterations to generate and test `num` hypertests
+        for i in 0..(num * 2) {
+            let mut input = match phase {
+                0 => {
+                    original_input.clone()
+                },
+                _ => { 
+                    let mut input = cached_input.clone();
+                    input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
+                    let mem_pattern = if phase == 1 { [0xAA] } else { [0x55] };
+                    if input.get_part_bytes(InputContentsFlags::SecretStackMemory).is_some() {
+                        input.set_part_bytes(InputContentsFlags::SecretStackMemory, &mem_pattern);
+                    }
+                    if input.get_part_bytes(InputContentsFlags::SecretHeapMemory).is_some() {
+                        input.set_part_bytes(InputContentsFlags::SecretHeapMemory, &mem_pattern);
+                    }
+                    input
+                },
+            };
+   
+            start_timer!(state);
+            let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
+            mark_feature_time!(state, PerfFeature::Mutate);
+
+            if mutated == MutationResult::Skipped { continue; }
+
+            if phase == 0 { cached_input = input.clone(); }
+            phase = (phase + 1) % 3;
+   
+            // Time is measured directly the `evaluate_input` function
+            let (untransformed, post) = input.try_transform_into(state)?;
+            let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+   
+            start_timer!(state);
+            self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+            post.post_exec(state, i as i32, corpus_idx)?;
+            mark_feature_time!(state, PerfFeature::MutatePostExec);
+        }
+
+        Ok(())
+    }
+
     pub fn find_leaked_bitflips(
         &mut self,
         fuzzer: &mut Z,
@@ -286,90 +313,92 @@ where
                 return Ok(()); 
             }
         }
-        println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
-        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-        let cur = input.get_mutable_current_buf_seg().to_owned();
-        assert!(input.get_secret_part_bytes() == cur);
-        assert!(cur.len() > 0);
 
-        self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input)?;
+        let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+        // println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
+        // input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
+        // let cur = input.get_mutable_current_buf_seg().to_owned();
+        // assert!(input.get_secret_part_bytes() == cur);
+        // assert!(cur.len() > 0);
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        if metadata.bitflips_do_not_map || metadata.completed_deterministic_bitflips {
-            println!("bailing as bitflips_do_not_map is {} and completed_deterministic is {}",
-                     metadata.bitflips_do_not_map, metadata.completed_deterministic_bitflips);
-            return Ok(());
-        }
+        // self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input)?;
 
-        // For input bits that map to many output bit flips, find the furthest distance 
-        // as we will extend the secret input by this amount
-        let furthest_one_to_many_dist = metadata.bitflip_flips_output_bits.iter()
-            .fold(0usize, |dist, map| {
-                let mut cur_dist = 0;
-                for (_, flips) in map {
-                    if flips.len() > 1 { 
-                        cur_dist = std::cmp::max(cur_dist, flips.last().unwrap() - flips[0]);
-                        println!("Setting cur_dist to {cur_dist}");
-                    }
-                }
+        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        // if metadata.bitflips_do_not_map || metadata.completed_deterministic_bitflips {
+        //     println!("bailing as bitflips_do_not_map is {} and completed_deterministic is {}",
+        //              metadata.bitflips_do_not_map, metadata.completed_deterministic_bitflips);
+        //     return Ok(());
+        // }
 
-                std::cmp::max(cur_dist, dist)
-            });
-        if furthest_one_to_many_dist == 0 {
-            return Ok(());
-        }
+        // // For input bits that map to many output bit flips, find the furthest distance 
+        // // as we will extend the secret input by this amount
+        // let furthest_one_to_many_dist = metadata.bitflip_flips_output_bits.iter()
+        //     .fold(0usize, |dist, map| {
+        //         let mut cur_dist = 0;
+        //         for (_, flips) in map {
+        //             if flips.len() > 1 { 
+        //                 cur_dist = std::cmp::max(cur_dist, flips.last().unwrap() - flips[0]);
+        //                 println!("Setting cur_dist to {cur_dist}");
+        //             }
+        //         }
 
-        let extra_bytes = (furthest_one_to_many_dist as f64 / 8f64).ceil() as usize;
-        let mut secret = input.get_secret_part_bytes().to_vec();
-        secret.append(&mut vec![0; extra_bytes]);
-        println!("Ok, extending violation {:?} by {extra_bytes} bytes, now len: {}", violation_idx, secret.len());
+        //         std::cmp::max(cur_dist, dist)
+        //     });
+        // if furthest_one_to_many_dist == 0 {
+        //     return Ok(());
+        // }
 
-        let mut extended_input ={
-            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-            testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(&secret);
-            testcase.input().as_ref().unwrap().to_owned()
-        };
-        extended_input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-        {
-            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-            metadata.bitflip_flips_output_bits = vec![];
-            metadata.ignored_output_bitflips = HashMap::new();
-        }
-        self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
-        self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input)?;
+        // let extra_bytes = (furthest_one_to_many_dist as f64 / 8f64).ceil() as usize;
+        // let mut secret = input.get_secret_part_bytes().to_vec();
+        // secret.append(&mut vec![0; extra_bytes]);
+        // println!("Ok, extending violation {:?} by {extra_bytes} bytes, now len: {}", violation_idx, secret.len());
+
+        // let mut extended_input ={
+        //     let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+        //     testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(&secret);
+        //     testcase.input().as_ref().unwrap().to_owned()
+        // };
+        // extended_input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
+        // {
+        //     let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        //     metadata.bitflip_flips_output_bits = vec![];
+        //     metadata.ignored_output_bitflips = HashMap::new();
+        // }
+        // self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
+        // self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input)?;
         
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        let mut unmapped_end_bitflips = 0;
-        for out_flips in metadata.bitflip_flips_output_bits.iter().rev() {
-            if out_flips.is_empty() {
-                unmapped_end_bitflips += 1;
-            } else {
-                break;
-            }
-        }
+        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        // let mut unmapped_end_bitflips = 0;
+        // for out_flips in metadata.bitflip_flips_output_bits.iter().rev() {
+        //     if out_flips.is_empty() {
+        //         unmapped_end_bitflips += 1;
+        //     } else {
+        //         break;
+        //     }
+        // }
 
-        let mut meta_len = 0;
-        if unmapped_end_bitflips / 8 > 0 {
-            let trimmed_secret_len = secret.len() - unmapped_end_bitflips / 8;
-            let trimmed_secret = &secret[0..trimmed_secret_len];
-            metadata.bitflip_flips_output_bits.truncate(8 * trimmed_secret_len);
-            meta_len = metadata.bitflip_flips_output_bits.len();
-            let input = {
-                let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-                testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(trimmed_secret);
-                testcase.input().as_ref().unwrap().to_owned()
-            };
-            println!("Trimming {} unmapped_end_bits from secret ({:?}); new len: {}", unmapped_end_bitflips / 8, violation_idx, input.get_secret_part_bytes().len());
-            self.collect_original_output_data(fuzzer, executor, state, manager, &input)?;
-        }
+        // let mut meta_len = 0;
+        // if unmapped_end_bitflips / 8 > 0 {
+        //     let trimmed_secret_len = secret.len() - unmapped_end_bitflips / 8;
+        //     let trimmed_secret = &secret[0..trimmed_secret_len];
+        //     metadata.bitflip_flips_output_bits.truncate(8 * trimmed_secret_len);
+        //     meta_len = metadata.bitflip_flips_output_bits.len();
+        //     let input = {
+        //         let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+        //         testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(trimmed_secret);
+        //         testcase.input().as_ref().unwrap().to_owned()
+        //     };
+        //     println!("Trimming {} unmapped_end_bits from secret ({:?}); new len: {}", unmapped_end_bitflips / 8, violation_idx, input.get_secret_part_bytes().len());
+        //     self.collect_original_output_data(fuzzer, executor, state, manager, &input)?;
+        // }
 
-        let testcase = state.violations().get(violation_idx).unwrap().borrow();
-        let input = testcase.input().as_ref().unwrap();
-        println!("Gonna check the length now (after trimmed {} bytes, to len {})!", unmapped_end_bitflips / 8, input.get_secret_part_bytes().len());
-        if unmapped_end_bitflips >= 8 && input.get_secret_part_bytes().len() * 8 != meta_len {
-            panic!("after trimming {} bytes from secret, ended up with {} bitflips in the map (should have {})",
-                unmapped_end_bitflips / 8, meta_len, 8 * input.get_secret_part_bytes().len());
-        }
+        // let testcase = state.violations().get(violation_idx).unwrap().borrow();
+        // let input = testcase.input().as_ref().unwrap();
+        // println!("Gonna check the length now (after trimmed {} bytes, to len {})!", unmapped_end_bitflips / 8, input.get_secret_part_bytes().len());
+        // if unmapped_end_bitflips >= 8 && input.get_secret_part_bytes().len() * 8 != meta_len {
+        //     panic!("after trimming {} bytes from secret, ended up with {} bitflips in the map (should have {})",
+        //         unmapped_end_bitflips / 8, meta_len, 8 * input.get_secret_part_bytes().len());
+        // }
 
         Ok(())
     }
@@ -402,95 +431,95 @@ where
         input: &<<Z as UsesState>::State as UsesInput>::Input,
     ) -> Result<(), Error> {
 
-        let mut seen_output_flips = HashMap::<OutputSource, HashSet<usize>>::new();
-        let mut dupes = HashMap::<OutputSource, HashSet<usize>>::new();
-        let tested_bitflips;
-        {
-            let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input).unwrap();
-            tested_bitflips = metadata.bitflip_flips_output_bits.len();
-            if tested_bitflips > 0 {
-                metadata.bitflip_flips_output_bits.iter().for_each(|map| {
-                    for (source, flips) in map {
-                        if let Some(seen) = seen_output_flips.get_mut(source) {
-                            flips.iter().for_each(|&pos| { seen.insert(pos); });
-                        } else {
-                            seen_output_flips.insert(
-                                *source, flips.clone().into_iter().collect::<HashSet<usize>>()
-                            );
-                        }
-                    }
-                });
-                dupes = metadata.ignored_output_bitflips.clone();
-            }
-        };
+        // let mut seen_output_flips = HashMap::<OutputSource, HashSet<usize>>::new();
+        // let mut dupes = HashMap::<OutputSource, HashSet<usize>>::new();
+        // let tested_bitflips;
+        // {
+        //     let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input).unwrap();
+        //     tested_bitflips = metadata.bitflip_flips_output_bits.len();
+        //     if tested_bitflips > 0 {
+        //         metadata.bitflip_flips_output_bits.iter().for_each(|map| {
+        //             for (source, flips) in map {
+        //                 if let Some(seen) = seen_output_flips.get_mut(source) {
+        //                     flips.iter().for_each(|&pos| { seen.insert(pos); });
+        //                 } else {
+        //                     seen_output_flips.insert(
+        //                         *source, flips.clone().into_iter().collect::<HashSet<usize>>()
+        //                     );
+        //                 }
+        //             }
+        //         });
+        //         dupes = metadata.ignored_output_bitflips.clone();
+        //     }
+        // };
 
-        for i in tested_bitflips..(8 * input.get_secret_part_bytes().len()) {
-            let mut input = input.clone();
+        // for i in tested_bitflips..(8 * input.get_secret_part_bytes().len()) {
+        //     let mut input = input.clone();
 
-            let buf = input.get_mutable_current_buf_seg();
-            let byte = i / 8;
-            let bitmask: u8 = 0x80 >> (i % 8);
-            buf[byte] ^= bitmask;
+        //     let buf = input.get_mutable_current_buf_seg();
+        //     let byte = i / 8;
+        //     let bitmask: u8 = 0x80 >> (i % 8);
+        //     buf[byte] ^= bitmask;
 
-            {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-                metadata.current_bitflips = vec![i];
-            }
+        //     {
+        //         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        //         metadata.current_bitflips = vec![i];
+        //     }
         
-            // Time is measured directly the `evaluate_input` function
-            let (untransformed, post) = input.clone().try_transform_into(state)?;
+        //     // Time is measured directly the `evaluate_input` function
+        //     let (untransformed, post) = input.clone().try_transform_into(state)?;
 
-            let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        //     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
 
-            start_timer!(state);
-            self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-            post.post_exec(state, i as i32, corpus_idx)?;
-            mark_feature_time!(state, PerfFeature::MutatePostExec);
+        //     start_timer!(state);
+        //     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+        //     post.post_exec(state, i as i32, corpus_idx)?;
+        //     mark_feature_time!(state, PerfFeature::MutatePostExec);
 
-            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-            let map = metadata.bitflip_flips_output_bits.last().unwrap();
-            for (&source, out_flips) in map {
-                if dupes.get(&source).is_none() { dupes.insert(source, HashSet::new()); }
-                let dupes_list = dupes.get_mut(&source).unwrap();
+        //     let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        //     let map = metadata.bitflip_flips_output_bits.last().unwrap();
+        //     for (&source, out_flips) in map {
+        //         if dupes.get(&source).is_none() { dupes.insert(source, HashSet::new()); }
+        //         let dupes_list = dupes.get_mut(&source).unwrap();
 
-                for out_flip in out_flips {
-                    if let Some(flips) = seen_output_flips.get_mut(&source) {
-                        if !flips.insert(*out_flip) { dupes_list.insert(*out_flip); }
-                    } else {
-                        seen_output_flips.insert(source, HashSet::from_iter(vec![*out_flip].into_iter()));
-                        dupes_list.insert(*out_flip);
-                    }
-                }
-            }
-        }
+        //         for out_flip in out_flips {
+        //             if let Some(flips) = seen_output_flips.get_mut(&source) {
+        //                 if !flips.insert(*out_flip) { dupes_list.insert(*out_flip); }
+        //             } else {
+        //                 seen_output_flips.insert(source, HashSet::from_iter(vec![*out_flip].into_iter()));
+        //                 dupes_list.insert(*out_flip);
+        //             }
+        //         }
+        //     }
+        // }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(input).unwrap();
-        metadata.current_bitflips.clear();
+        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(input).unwrap();
+        // metadata.current_bitflips.clear();
 
-        let mut mapped_bitflips = 0;
-        // Filter out all the dupes so we don't get caught out later!
-        for bitflip_map in metadata.bitflip_flips_output_bits.iter_mut() {
-            dupes.iter().for_each(|(source, flips)| {
-                if !flips.is_empty() {
-                    let before_len = bitflip_map.get(source).unwrap().len();
-                    bitflip_map.get_mut(source).unwrap().retain(|x| !flips.contains(x));
-                    let after_len = bitflip_map.get(source).unwrap().len();
-                    if before_len > after_len { println!("Removed mapped bits, went from {before_len} to {after_len}"); }
-                }
-            });
+        // let mut mapped_bitflips = 0;
+        // // Filter out all the dupes so we don't get caught out later!
+        // for bitflip_map in metadata.bitflip_flips_output_bits.iter_mut() {
+        //     dupes.iter().for_each(|(source, flips)| {
+        //         if !flips.is_empty() {
+        //             let before_len = bitflip_map.get(source).unwrap().len();
+        //             bitflip_map.get_mut(source).unwrap().retain(|x| !flips.contains(x));
+        //             let after_len = bitflip_map.get(source).unwrap().len();
+        //             if before_len > after_len { println!("Removed mapped bits, went from {before_len} to {after_len}"); }
+        //         }
+        //     });
 
-            bitflip_map.values().for_each(|flips| if !flips.is_empty() { mapped_bitflips += 1 });
-        }
+        //     bitflip_map.values().for_each(|flips| if !flips.is_empty() { mapped_bitflips += 1 });
+        // }
 
-        println!("Removing dupes: {:?}", dupes);
-        metadata.ignored_output_bitflips = dupes;
+        // println!("Removing dupes: {:?}", dupes);
+        // metadata.ignored_output_bitflips = dupes;
 
-        match mapped_bitflips {
-            0 => metadata.bitflips_do_not_map = true,
-            // there are no 'random combos' to test...
-            1 => metadata.completed_deterministic_bitflips = true,
-            _ => (),
-        };
+        // match mapped_bitflips {
+        //     0 => metadata.bitflips_do_not_map = true,
+        //     // there are no 'random combos' to test...
+        //     1 => metadata.completed_deterministic_bitflips = true,
+        //     _ => (),
+        // };
 
         Ok(())
     }
@@ -506,85 +535,85 @@ where
         // Try random combos of bitflips to check that they do map as expected
         // println!("Ok, should try random combos now!");
 
-        let input;
-        {
-            let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-            match Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
-                Ok(i) => input = i,
-                Err(_) => return Ok(()),
-            };
-        }
+        // let input;
+        // {
+        //     let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
+        //     match Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
+        //         Ok(i) => input = i,
+        //         Err(_) => return Ok(()),
+        //     };
+        // }
 
 
-        let mut input = input.clone();
-        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-        let sec_len_bits = 8 * input.get_secret_part_bytes().len();
+        // let mut input = input.clone();
+        // input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
+        // let sec_len_bits = 8 * input.get_secret_part_bytes().len();
 
-        for stage in 0..sec_len_bits {
-            let output_mapped_bits = {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input).unwrap();
-                metadata.bitflip_flips_output_bits.iter()
-                    .enumerate()
-                    .filter(|(_idx, val)| !val.is_empty())
-                    .map(|(idx, _)| idx)
-                    .collect::<Vec<usize>>()
-            };
+        // for stage in 0..sec_len_bits {
+        //     let output_mapped_bits = {
+        //         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata(&input).unwrap();
+        //         metadata.bitflip_flips_output_bits.iter()
+        //             .enumerate()
+        //             .filter(|(_idx, val)| !val.is_empty())
+        //             .map(|(idx, _)| idx)
+        //             .collect::<Vec<usize>>()
+        //     };
     
-            let mut input = input.clone();
-            let secret = input.get_mutable_current_buf_seg();
-            let mut rand = thread_rng();
+        //     let mut input = input.clone();
+        //     let secret = input.get_mutable_current_buf_seg();
+        //     let mut rand = thread_rng();
 
-            let bits_to_flip = match stage {
-                0 => output_mapped_bits.clone(),
-                1 => output_mapped_bits[0..(output_mapped_bits.len() / 2)].to_owned(),
-                2 => output_mapped_bits[(output_mapped_bits.len() / 2)..].to_owned(),
-                _ => output_mapped_bits.clone().into_iter().choose_multiple(
-                    &mut rand,
-                    if stage < sec_len_bits / 8 {
-                            3 * output_mapped_bits.len() / 4
-                    } else if stage < sec_len_bits / 4 {
-                            std::cmp::max(std::cmp::min(sec_len_bits, 4), output_mapped_bits.len() / 2)
-                    } else if stage < sec_len_bits / 2 {
-                            std::cmp::max(std::cmp::min(sec_len_bits, 3), output_mapped_bits.len() / 4)
-                    } else {
-                            std::cmp::max(std::cmp::min(sec_len_bits, 2), output_mapped_bits.len() / 8)
-                    }
-                )
-            };
+        //     let bits_to_flip = match stage {
+        //         0 => output_mapped_bits.clone(),
+        //         1 => output_mapped_bits[0..(output_mapped_bits.len() / 2)].to_owned(),
+        //         2 => output_mapped_bits[(output_mapped_bits.len() / 2)..].to_owned(),
+        //         _ => output_mapped_bits.clone().into_iter().choose_multiple(
+        //             &mut rand,
+        //             if stage < sec_len_bits / 8 {
+        //                     3 * output_mapped_bits.len() / 4
+        //             } else if stage < sec_len_bits / 4 {
+        //                     std::cmp::max(std::cmp::min(sec_len_bits, 4), output_mapped_bits.len() / 2)
+        //             } else if stage < sec_len_bits / 2 {
+        //                     std::cmp::max(std::cmp::min(sec_len_bits, 3), output_mapped_bits.len() / 4)
+        //             } else {
+        //                     std::cmp::max(std::cmp::min(sec_len_bits, 2), output_mapped_bits.len() / 8)
+        //             }
+        //         )
+        //     };
 
-            // no point checking single bit flips again...
-            if bits_to_flip.len() <= 1 { break; }
+        //     // no point checking single bit flips again...
+        //     if bits_to_flip.len() <= 1 { break; }
 
-            for bit in &bits_to_flip {
-                if bit / 8 >= secret.len() {
-                    println!("in violation {:?} input of len {} bits; selected bit {bit} from target bits {:?} to flip from full set {:?}", violation_idx, 8 * secret.len(), bits_to_flip, output_mapped_bits);
-                }
-                secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
-            }
+        //     for bit in &bits_to_flip {
+        //         if bit / 8 >= secret.len() {
+        //             println!("in violation {:?} input of len {} bits; selected bit {bit} from target bits {:?} to flip from full set {:?}", violation_idx, 8 * secret.len(), bits_to_flip, output_mapped_bits);
+        //         }
+        //         secret[bit / 8] ^= (0x80 >> (bit % 8)) as u8;
+        //     }
 
-            {
-                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-                if bits_to_flip.is_empty() {
-                    panic!("supposed to flips {} bits (from possible {:?}), in input of len: {}", bits_to_flip.len(), output_mapped_bits, sec_len_bits);
-                }
-                metadata.current_bitflips = bits_to_flip;
-            }
+        //     {
+        //         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        //         if bits_to_flip.is_empty() {
+        //             panic!("supposed to flips {} bits (from possible {:?}), in input of len: {}", bits_to_flip.len(), output_mapped_bits, sec_len_bits);
+        //         }
+        //         metadata.current_bitflips = bits_to_flip;
+        //     }
 
-            let (untransformed, post) = input.try_transform_into(state)?;
+        //     let (untransformed, post) = input.try_transform_into(state)?;
 
-            let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        //     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
 
-            start_timer!(state);
-            let i = 0;
-            self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-            post.post_exec(state, i as i32, corpus_idx)?;
-            mark_feature_time!(state, PerfFeature::MutatePostExec);
-        }
+        //     start_timer!(state);
+        //     let i = 0;
+        //     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
+        //     post.post_exec(state, i as i32, corpus_idx)?;
+        //     mark_feature_time!(state, PerfFeature::MutatePostExec);
+        // }
 
-        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        metadata.current_bitflips.clear();
-        metadata.completed_deterministic_bitflips = true;
-        println!("Completed deterministic bitflips for an input!");
+        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+        // metadata.current_bitflips.clear();
+        // metadata.completed_deterministic_bitflips = true;
+        // println!("Completed deterministic bitflips for an input!");
         Ok(())
     }
 }
