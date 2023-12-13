@@ -1,6 +1,6 @@
 use hashbrown::{HashMap, HashSet};
 use core::marker::PhantomData;
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
+use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, process::Output};
 use libafl_bolts::{ErrorBacktrace, Error};
 use libafl::prelude::Input;
 use crate::{output_feedback::{OutputData, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach, pub_sec_input::InputContentsFlags};
@@ -32,13 +32,87 @@ pub struct LeakQuantifyMetadata {
     /// A list of bits that have been flipped for the current input
     pub current_bitflips: Vec<usize>,
     /// Flipping the bit at [index] causes 1 bit flip at the output
-    pub bitflip_flips_output_bits: Vec<HashMap<OutputSource, Vec<usize>>>,
+    pub bitflip_flips_output_bits: BitflipMap,
     /// Have we completed the deterministic bit flipping stage
     pub completed_deterministic_bitflips: bool,
     /// set to true if we find that bitflips in input don't map directly to output
     pub bitflips_do_not_map: bool,
-    /// The set of output bitflips that are affected by more than one input bits, or a combination of input bits
-    pub ignored_output_bitflips: HashMap<OutputSource, HashSet<usize>>,
+    // /// The set of output bitflips that are affected by more than one input bits, or a combination of input bits
+    // pub ignored_output_bitflips: HashMap<OutputSource, HashSet<usize>>,
+}
+
+/// enum describing the location of a bit from the secret input (enum parameter indicates bit number)
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct InputBitLocation {
+    pub part: InputContentsFlags,
+    pub bit_num: usize,
+}
+
+/// enum describing the location of a bit from the public input (enum parameter indicates bit number)
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct OutputBitLocation {
+    pub source: OutputSource,
+    pub bit_num: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct BitflipMap {
+    map: HashMap<InputBitLocation, HashSet<OutputBitLocation>>,
+    seen_output_flips: HashSet<OutputBitLocation>,
+    dupes: HashSet<OutputBitLocation>,
+}
+
+impl BitflipMap {
+    pub fn new() -> Self { 
+        Self { 
+            map: HashMap::new(),
+            seen_output_flips: HashSet::new(),
+            dupes: HashSet::new(),
+        } 
+    }
+
+    pub fn len(&self) -> usize { self.map.len() }
+
+    pub fn mapped_inputs_count(&self) -> usize {
+        self.map.values().fold(0usize, |acc, o| acc + if o.is_empty() { 0 } else { 1 })
+    }
+
+    pub fn iterate_map(&self) -> hashbrown::hash_map::Iter<'_, InputBitLocation, HashSet<OutputBitLocation>> {
+        self.map.iter()
+    }
+
+    /// Insert the mapping from input_bit to output_bits, returning a Vec containing the list of
+    /// new output_bits that were added (after filtering any duplicates)
+    pub fn insert_entry(
+        &mut self,
+        input_bit: InputBitLocation, 
+        output_bits: Vec<OutputBitLocation>
+    ) -> Vec<OutputBitLocation> {
+        let mut filtered = vec![];
+        let mut new_dupes = HashSet::new();
+
+        for out_bit in &output_bits {
+            if self.dupes.contains(out_bit) { continue; }
+            if !self.seen_output_flips.insert(*out_bit) {
+                self.dupes.insert(*out_bit);
+                new_dupes.insert(*out_bit);
+            } else {
+                filtered.push(*out_bit);
+            }
+        }
+
+        // filter out new dupes from the existing map
+        self.map.values_mut().for_each(|out_bits| out_bits.retain(|e|!new_dupes.contains(e)));
+
+        // add this mapping
+        self.map.insert(input_bit, HashSet::from_iter(filtered.iter().copied()));
+
+        filtered
+    }
+
+    pub fn get_output_flips_for_input_bit(&self, input_bit_location: InputBitLocation) -> Option<&HashSet<OutputBitLocation>> {
+        self.map.get(&input_bit_location)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -536,115 +610,115 @@ where
     }
 
     fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData) {
-        let metadata = self.get_leak_quantify_metadata_mut(input).unwrap();
-        match metadata.current_bitflips.len() {
-            0 => {
-                if metadata.original_output.is_some() { panic!("Expected we're setting the original output again!"); }
-                metadata.original_output = Some(output_data.to_owned());
-            },
-            1 => {
-                let mut flipped_bits_map = HashMap::new();
+        // let metadata = self.get_leak_quantify_metadata_mut(input).unwrap();
+        // match metadata.current_bitflips.len() {
+        //     0 => {
+        //         if metadata.original_output.is_some() { panic!("Expected we're setting the original output again!"); }
+        //         metadata.original_output = Some(output_data.to_owned());
+        //     },
+        //     1 => {
+        //         let mut flipped_bits_map = HashMap::new();
 
-                // We should probably be comparing stdout and stderr separately... not concat'ed
-                // let mut orig = metadata.original_output.as_ref().unwrap().stdout.clone();
-                // orig.append(&mut metadata.original_output.as_ref().unwrap().stderr.clone());
+        //         // We should probably be comparing stdout and stderr separately... not concat'ed
+        //         // let mut orig = metadata.original_output.as_ref().unwrap().stdout.clone();
+        //         // orig.append(&mut metadata.original_output.as_ref().unwrap().stderr.clone());
 
-                // let mut new = output_data.stdout.clone();
-                // new.append(&mut output_data.stderr.clone());
+        //         // let mut new = output_data.stdout.clone();
+        //         // new.append(&mut output_data.stderr.clone());
 
-                // if new.len() != orig.len() { println!("lengths differ: orig len was {}, new is {}", orig.len(), new.len()); }
-                let outputs = [
-                    (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
-                    (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
-                ];
+        //         // if new.len() != orig.len() { println!("lengths differ: orig len was {}, new is {}", orig.len(), new.len()); }
+        //         let outputs = [
+        //             (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
+        //             (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
+        //         ];
 
-                for (source, orig, new) in outputs {
-                    let mut bitflips = vec![];
-                    // For each byte in the stdout output
-                    for byte in 0..std::cmp::min(new.len(), orig.len()) {
-                        // Check if any bits differ
-                        let diff = new[byte] ^ orig[byte];
-                        for bit in 0..8 {
-                            if diff & (0x80 >> bit) != 0 {
-                                bitflips.push(8 * byte + bit);
-                            }
-                        }
-                    }
+        //         for (source, orig, new) in outputs {
+        //             let mut bitflips = vec![];
+        //             // For each byte in the stdout output
+        //             for byte in 0..std::cmp::min(new.len(), orig.len()) {
+        //                 // Check if any bits differ
+        //                 let diff = new[byte] ^ orig[byte];
+        //                 for bit in 0..8 {
+        //                     if diff & (0x80 >> bit) != 0 {
+        //                         bitflips.push(8 * byte + bit);
+        //                     }
+        //                 }
+        //             }
 
-                    flipped_bits_map.insert(source, bitflips);
-                }
+        //             flipped_bits_map.insert(source, bitflips);
+        //         }
 
-                if flipped_bits_map.values().fold(0usize, |sum, e| sum + e.len()) > 0 {
-                    println!("bit {} of input flip maps to {} bits of stdout and {} bits of stderr", 
-                        metadata.bitflip_flips_output_bits.len(),
-                        flipped_bits_map.get(&OutputSource::Stdout).unwrap().len(),
-                        flipped_bits_map.get(&OutputSource::Stderr).unwrap().len(),
-                    );
-                    // if orig.len() < 120 && new.len() < 120 {
-                    //   let mut hex = orig.iter()
-                    //       .map(|b| format!("{:02x}", b).to_string())
-                    //       .collect::<Vec<String>>()
-                    //       .join(" ");
-                    //   println!("  orig: {:?}", hex);
-                    //   hex = new.iter()
-                    //       .map(|b| format!("{:02x}", b).to_string())
-                    //       .collect::<Vec<String>>()
-                    //       .join(" ");
-                    //   println!("  new:  {:?}", hex);
-                    // }
-                }
-                metadata.bitflip_flips_output_bits.push(flipped_bits_map);
-            },
-            _ => {
+        //         if flipped_bits_map.values().fold(0usize, |sum, e| sum + e.len()) > 0 {
+        //             println!("bit {} of input flip maps to {} bits of stdout and {} bits of stderr", 
+        //                 metadata.bitflip_flips_output_bits.len(),
+        //                 flipped_bits_map.get(&OutputSource::Stdout).unwrap().len(),
+        //                 flipped_bits_map.get(&OutputSource::Stderr).unwrap().len(),
+        //             );
+        //             // if orig.len() < 120 && new.len() < 120 {
+        //             //   let mut hex = orig.iter()
+        //             //       .map(|b| format!("{:02x}", b).to_string())
+        //             //       .collect::<Vec<String>>()
+        //             //       .join(" ");
+        //             //   println!("  orig: {:?}", hex);
+        //             //   hex = new.iter()
+        //             //       .map(|b| format!("{:02x}", b).to_string())
+        //             //       .collect::<Vec<String>>()
+        //             //       .join(" ");
+        //             //   println!("  new:  {:?}", hex);
+        //             // }
+        //         }
+        //         // metadata.bitflip_flips_output_bits.push(flipped_bits_map);
+        //     },
+        //     _ => {
 
-                let outputs = [
-                    (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
-                    (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
-                ];
-                for (source, orig, new) in outputs {
-                    let ignored_output_bitflips = metadata.ignored_output_bitflips.get(&source).unwrap();
-                    // collect up a list of all the output bits we'd expect to be flipped
-                    let mut expected_bitflips = metadata.current_bitflips
-                        .iter()
-                        .flat_map(|&idx| metadata.bitflip_flips_output_bits[idx].get(&source).unwrap().to_owned())
-                        .collect::<HashSet<usize>>();
+        //         let outputs = [
+        //             (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
+        //             (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
+        //         ];
+        //         for (source, orig, new) in outputs {
+        //             let ignored_output_bitflips = metadata.ignored_output_bitflips.get(&source).unwrap();
+        //             // collect up a list of all the output bits we'd expect to be flipped
+        //             let mut expected_bitflips = metadata.current_bitflips
+        //                 .iter()
+        //                 .flat_map(|&idx| metadata.bitflip_flips_output_bits[idx].get(&source).unwrap().to_owned())
+        //                 .collect::<HashSet<usize>>();
 
-                    let mut flipped_bits = HashSet::new();
-                    for byte in 0..std::cmp::min(new.len(), orig.len()) {
-                        let diff = new[byte] ^ orig[byte];
-                        if diff != 0 {
-                            // get a list of the bits that were flipped in this new output
-                            let mut flipped = (0usize..8usize).into_iter()
-                                .filter(|&bit| diff & (0x80 >> bit) != 0)
-                                .map(|bit| 8 * byte + bit)
-                                .for_each(|bit| { flipped_bits.insert(bit); });
-                        }
-                    }
+        //             let mut flipped_bits = HashSet::new();
+        //             for byte in 0..std::cmp::min(new.len(), orig.len()) {
+        //                 let diff = new[byte] ^ orig[byte];
+        //                 if diff != 0 {
+        //                     // get a list of the bits that were flipped in this new output
+        //                     let mut flipped = (0usize..8usize).into_iter()
+        //                         .filter(|&bit| diff & (0x80 >> bit) != 0)
+        //                         .map(|bit| 8 * byte + bit)
+        //                         .for_each(|bit| { flipped_bits.insert(bit); });
+        //                 }
+        //             }
 
-                    let filtered_flipped = flipped_bits.difference(&ignored_output_bitflips).copied().collect::<HashSet<usize>>();
-                    let failed_flips = expected_bitflips.difference(&filtered_flipped);
-                    if failed_flips.clone().count() > 0 {
-                        let failed_flips = failed_flips.clone().copied().collect::<HashSet<usize>>();
-                        println!("{} expected bitflips failed for this input bitflip combo: {:?}", 
-                            failed_flips.len(), failed_flips);
+        //             let filtered_flipped = flipped_bits.difference(&ignored_output_bitflips).copied().collect::<HashSet<usize>>();
+        //             let failed_flips = expected_bitflips.difference(&filtered_flipped);
+        //             if failed_flips.clone().count() > 0 {
+        //                 let failed_flips = failed_flips.clone().copied().collect::<HashSet<usize>>();
+        //                 println!("{} expected bitflips failed for this input bitflip combo: {:?}", 
+        //                     failed_flips.len(), failed_flips);
 
-                        // Remove all of these uncertain bitflips
-                        metadata.bitflip_flips_output_bits.iter_mut().for_each(|map| {
-                            map.get_mut(&source).unwrap().retain(|idx| !failed_flips.contains(idx));
-                        });
-                    }
+        //                 // Remove all of these uncertain bitflips
+        //                 metadata.bitflip_flips_output_bits.iter_mut().for_each(|map| {
+        //                     map.get_mut(&source).unwrap().retain(|idx| !failed_flips.contains(idx));
+        //                 });
+        //             }
 
-                    let excess_flips = filtered_flipped.difference(&expected_bitflips);
-                    if excess_flips.clone().count() > 0 {
-                        println!("{} excess bitflips for this input bitflip combo: {:?}", 
-                            excess_flips.clone().count(), excess_flips.clone().copied().collect::<Vec<usize>>());
+        //             let excess_flips = filtered_flipped.difference(&expected_bitflips);
+        //             if excess_flips.clone().count() > 0 {
+        //                 println!("{} excess bitflips for this input bitflip combo: {:?}", 
+        //                     excess_flips.clone().count(), excess_flips.clone().copied().collect::<Vec<usize>>());
 
-                        let ignored_flips = metadata.ignored_output_bitflips.get_mut(&source).unwrap();
-                        excess_flips.for_each(|&flip| { ignored_flips.insert(flip); });
-                    }
-                }
-            }
-        }
+        //                 let ignored_flips = metadata.ignored_output_bitflips.get_mut(&source).unwrap();
+        //                 excess_flips.for_each(|&flip| { ignored_flips.insert(flip); });
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
@@ -685,9 +759,7 @@ where
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
             if let Some(metadata) = &hash_val.leak_quantify_metadata {
                 if !metadata.bitflips_do_not_map && metadata.completed_deterministic_bitflips {
-                    let bitflips_leaked = metadata.bitflip_flips_output_bits.iter()
-                        .filter(|&x| !x.is_empty())
-                        .count();
+                    let bitflips_leaked = metadata.bitflip_flips_output_bits.mapped_inputs_count();
                     most_bitflips_leaked = std::cmp::max(bitflips_leaked, most_bitflips_leaked);
                 }
             }
@@ -750,7 +822,7 @@ where
 
     fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach {
         let metadata = self.get_leak_quantify_metadata(input).unwrap();
-        if metadata.bitflip_flips_output_bits.is_empty() {
+        if metadata.bitflip_flips_output_bits.len() == 0 {
             ViolationsTargetingApproach::SingleBitFlips
         } else if !metadata.bitflips_do_not_map && !metadata.completed_deterministic_bitflips {
             ViolationsTargetingApproach::RandomBitFlips
@@ -807,12 +879,11 @@ where
         }
 
         deets.leak_quantify_metadata = Some(LeakQuantifyMetadata {
-            bitflip_flips_output_bits: vec![],
+            bitflip_flips_output_bits: BitflipMap::new(),
             original_output: Some(output_data.to_owned()),
             current_bitflips: vec![],
             completed_deterministic_bitflips: false,
             bitflips_do_not_map: false,
-            ignored_output_bitflips: HashMap::new(),
         });
     }
 }

@@ -23,7 +23,7 @@ use crate::{
     pub_sec_mutations::SecretUniformMutator, 
     pub_sec_input::{PubSecInput, MutateTarget, InputContentsFlags}, 
     output_leak_fuzzer::HasHypertestFeedback, 
-    hypertest_feedback::HypertestFeedback, output_feedback::OutputSource, output_observer::OutputObserver
+    hypertest_feedback::{HypertestFeedback, BitflipMap, InputBitLocation, OutputBitLocation}, output_feedback::{OutputSource, OutputData}, output_observer::OutputObserver
 };
 
 /// The default mutational stage
@@ -113,7 +113,7 @@ where
         }
    
         let mut testcase = state.corpus().get(corpus_idx)?.borrow_mut();
-        let Ok(mut input) = I::try_transform_from(&mut testcase, state, corpus_idx) else { return Ok(()); };
+        let Ok(input) = I::try_transform_from(&mut testcase, state, corpus_idx) else { return Ok(()); };
         drop(testcase);
 
         mark_feature_time!(state, PerfFeature::GetInputFromCorpus);
@@ -304,7 +304,7 @@ where
         manager: &mut EM,
         violation_idx: CorpusId,
     ) -> Result<(), Error> {
-        let mut input;
+        let input;
         {
             let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
             if let Ok(i) = Z::Input::try_transform_from(&mut testcase, state, violation_idx) {
@@ -314,7 +314,90 @@ where
             }
         }
 
-        let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+        let potential_parts = [
+            InputContentsFlags::SecretExplicitInput,
+            InputContentsFlags::SecretStackMemory,
+            InputContentsFlags::SecretHeapMemory,
+        ];
+        let mut effectual_parts = vec![];
+        for part in potential_parts {
+            if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretExplicitInput) {
+                let inverted = buf.iter().map(|byte| byte ^ 0xFF).collect::<Vec<u8>>();
+                let mut input = input.clone();
+                input.set_part_bytes(InputContentsFlags::SecretExplicitInput, &inverted);
+                let output = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input).unwrap();
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+
+                if output != *metadata.original_output.as_ref().unwrap() {
+                    effectual_parts.push(part);
+                }
+            }
+        }
+
+        let bitflip_map = self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts).unwrap();
+
+        // For input bits that map to many output bit flips, find the furthest distance 
+        // as we will extend the secret input by this amount
+        let mut max_dists: HashMap<InputContentsFlags, usize> = HashMap::new();
+        for (in_bit_location, out_bit_locations) in bitflip_map.iterate_map() {
+            let mut mins_and_maxes = HashMap::new();
+            for out_bit in out_bit_locations {
+                if let Some((min, max)) = mins_and_maxes.get_mut(&out_bit.source) {
+                    if out_bit.bit_num < *min { *min = out_bit.bit_num; }
+                    if out_bit.bit_num > *max { *max = out_bit.bit_num; }
+                } else {
+                    mins_and_maxes.insert(out_bit.source, (out_bit.bit_num, out_bit.bit_num));
+                }
+            }
+
+            for (_source, (min, max)) in mins_and_maxes {
+                if let Some(cur_dist) = max_dists.get_mut(&in_bit_location.part) {
+                    if max - min > *cur_dist { *cur_dist = max - min; }
+                } else {
+                    max_dists.insert(in_bit_location.part, max - min);
+                }
+            }
+        }
+
+        {
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+            metadata.bitflip_flips_output_bits = bitflip_map;
+
+            // Ok, no one-to-many mappings so don't bother extending the input for now
+            if max_dists.iter().filter(|(_, &extend_dist)| extend_dist > 0).count() == 0 {
+                if metadata.bitflip_flips_output_bits.mapped_inputs_count() == 0 {
+                    metadata.bitflips_do_not_map = true;
+                }
+
+                return Ok(());
+            }
+        }
+
+        // TODO: If EVERY bit of the explicit secret input leaks to output then we should
+        //       probably also extend; just in case
+
+        let mut extended_input = input.clone();
+        drop(input);
+        let mut extensions = vec![];
+        for (input_part, extend_dist) in max_dists {
+            if extend_dist > 0 {
+                let mut current_bytes = extended_input.get_part_bytes(input_part).unwrap().to_owned();
+                current_bytes.append(&mut vec![0u8; extend_dist]);
+                extended_input.set_part_bytes(input_part, &current_bytes);
+                extensions.push(input_part);
+            }
+        }
+
+        // Collect new `original_output` for this extended input
+        self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
+
+        let extended_bitflip_map = self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)?;
+
+        {
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&extended_input).unwrap();
+            metadata.bitflip_flips_output_bits = extended_bitflip_map;
+        }
+
         // println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
         // input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
         // let cur = input.get_mutable_current_buf_seg().to_owned();
@@ -403,6 +486,37 @@ where
         Ok(())
     }
 
+    fn execute_input_and_collect_output(
+        &mut self,
+        fuzzer: &mut Z,
+        executor: &mut E,
+        state: &mut Z::State,
+        manager: &mut EM,
+        input: &<<Z as UsesState>::State as UsesInput>::Input,
+    ) -> Result<OutputData, Error> {
+        self.execute_input(fuzzer, executor, state, manager, input)?;
+        let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+        let stdout = observer.stdout.as_ref().unwrap().to_owned();
+        let stderr = observer.stderr.as_ref().unwrap().to_owned();
+        Ok(OutputData { stdout, stderr })
+    }
+
+    fn execute_input(
+        &mut self,
+        fuzzer: &mut Z,
+        executor: &mut E,
+        state: &mut Z::State,
+        manager: &mut EM,
+        input: &<<Z as UsesState>::State as UsesInput>::Input,
+    ) -> Result<(), Error> {
+        let (untransformed, _post) = input.clone().try_transform_into(state)?;
+        let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
+        if let Some(new_idx) = corpus_idx {
+            println!("Unexpectedly found new queue entry at {:?}", new_idx);
+        }
+        Ok(())
+    }
+
     fn collect_original_output_data(
         &mut self,
         fuzzer: &mut Z,
@@ -411,15 +525,33 @@ where
         manager: &mut EM,
         input: &<<Z as UsesState>::State as UsesInput>::Input,
     ) -> Result<(), Error> {
+        let output_data = self.execute_input_and_collect_output(fuzzer, executor, state, manager, input)?;
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
-        metadata.original_output = None;
-
-        let (untransformed, post) = input.clone().try_transform_into(state)?;
-        let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
-        // self.mutator_mut().post_exec(state, 0i32, corpus_idx)?;
-        // post.post_exec(state, 0i32, corpus_idx)?;
-
+        metadata.original_output = Some(output_data);
         Ok(())
+    }
+
+    pub fn retrieve_bitflip_differences(out1: &OutputData, out2: &OutputData) -> Vec<OutputBitLocation> {
+            let outputs = [
+                (OutputSource::Stdout, &out1.stdout, &out2.stdout),
+                (OutputSource::Stderr, &out2.stdout, &out2.stderr),
+            ];
+
+            let mut flipped_bits = vec![];
+            for (source, orig, new) in outputs {
+                // For each byte in the stdout output
+                for byte in 0..std::cmp::min(new.len(), orig.len()) {
+                    // Check if any bits differ
+                    let diff = new[byte] ^ orig[byte];
+                    for bit in 0..8 {
+                        if diff & (0x80 >> bit) != 0 {
+                            flipped_bits.push(OutputBitLocation { source, bit_num: 8 * byte + bit });
+                        }
+                    }
+                }
+            }
+
+            flipped_bits
     }
 
     pub fn leak_test_all_bitflips(
@@ -429,90 +561,37 @@ where
         state: &mut Z::State,
         manager: &mut EM,
         input: &<<Z as UsesState>::State as UsesInput>::Input,
-    ) -> Result<(), Error> {
+        input_parts: &[InputContentsFlags],
+    ) -> Result<BitflipMap, Error> {
 
-        // let mut seen_output_flips = HashMap::<OutputSource, HashSet<usize>>::new();
-        // let mut dupes = HashMap::<OutputSource, HashSet<usize>>::new();
-        // let tested_bitflips;
-        // {
-        //     let metadata = fuzzer.hypertest_feedback().get_leak_quantify_metadata(input).unwrap();
-        //     tested_bitflips = metadata.bitflip_flips_output_bits.len();
-        //     if tested_bitflips > 0 {
-        //         metadata.bitflip_flips_output_bits.iter().for_each(|map| {
-        //             for (source, flips) in map {
-        //                 if let Some(seen) = seen_output_flips.get_mut(source) {
-        //                     flips.iter().for_each(|&pos| { seen.insert(pos); });
-        //                 } else {
-        //                     seen_output_flips.insert(
-        //                         *source, flips.clone().into_iter().collect::<HashSet<usize>>()
-        //                     );
-        //                 }
-        //             }
-        //         });
-        //         dupes = metadata.ignored_output_bitflips.clone();
-        //     }
-        // };
+        let mut bitflip_map = BitflipMap::new();
 
-        // for i in tested_bitflips..(8 * input.get_secret_part_bytes().len()) {
-        //     let mut input = input.clone();
+        for &input_part in input_parts {
+            let secret_bytes = input.get_part_bytes(input_part).unwrap();
+            let num_bits = 8 * secret_bytes.len();
+            for i in 0..num_bits {
+                let mut input = input.clone();
 
-        //     let buf = input.get_mutable_current_buf_seg();
-        //     let byte = i / 8;
-        //     let bitmask: u8 = 0x80 >> (i % 8);
-        //     buf[byte] ^= bitmask;
+                let mut buf = secret_bytes.to_vec();
+                let byte = i / 8;
+                let bitmask: u8 = 0x80 >> (i % 8);
+                buf[byte] ^= bitmask;
+                input.set_part_bytes(input_part, &buf);
 
-        //     {
-        //         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        //         metadata.current_bitflips = vec![i];
-        //     }
-        
-        //     // Time is measured directly the `evaluate_input` function
-        //     let (untransformed, post) = input.clone().try_transform_into(state)?;
+                {
+                    let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+                    metadata.current_bitflips = vec![i];
+                }
+            
+                let output_data = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input)?;
+                let diffs = {
+                    let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+                    Self::retrieve_bitflip_differences(metadata.original_output.as_ref().unwrap(), &output_data)
+                };
 
-        //     let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
-
-        //     start_timer!(state);
-        //     self.mutator_mut().post_exec(state, i as i32, corpus_idx)?;
-        //     post.post_exec(state, i as i32, corpus_idx)?;
-        //     mark_feature_time!(state, PerfFeature::MutatePostExec);
-
-        //     let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        //     let map = metadata.bitflip_flips_output_bits.last().unwrap();
-        //     for (&source, out_flips) in map {
-        //         if dupes.get(&source).is_none() { dupes.insert(source, HashSet::new()); }
-        //         let dupes_list = dupes.get_mut(&source).unwrap();
-
-        //         for out_flip in out_flips {
-        //             if let Some(flips) = seen_output_flips.get_mut(&source) {
-        //                 if !flips.insert(*out_flip) { dupes_list.insert(*out_flip); }
-        //             } else {
-        //                 seen_output_flips.insert(source, HashSet::from_iter(vec![*out_flip].into_iter()));
-        //                 dupes_list.insert(*out_flip);
-        //             }
-        //         }
-        //     }
-        // }
-
-        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(input).unwrap();
-        // metadata.current_bitflips.clear();
-
-        // let mut mapped_bitflips = 0;
-        // // Filter out all the dupes so we don't get caught out later!
-        // for bitflip_map in metadata.bitflip_flips_output_bits.iter_mut() {
-        //     dupes.iter().for_each(|(source, flips)| {
-        //         if !flips.is_empty() {
-        //             let before_len = bitflip_map.get(source).unwrap().len();
-        //             bitflip_map.get_mut(source).unwrap().retain(|x| !flips.contains(x));
-        //             let after_len = bitflip_map.get(source).unwrap().len();
-        //             if before_len > after_len { println!("Removed mapped bits, went from {before_len} to {after_len}"); }
-        //         }
-        //     });
-
-        //     bitflip_map.values().for_each(|flips| if !flips.is_empty() { mapped_bitflips += 1 });
-        // }
-
-        // println!("Removing dupes: {:?}", dupes);
-        // metadata.ignored_output_bitflips = dupes;
+                bitflip_map.insert_entry(InputBitLocation { part: input_part, bit_num: i }, diffs);
+            }
+        }
 
         // match mapped_bitflips {
         //     0 => metadata.bitflips_do_not_map = true,
@@ -521,7 +600,7 @@ where
         //     _ => (),
         // };
 
-        Ok(())
+        Ok(bitflip_map)
     }
 
     pub fn leak_test_random_bitflip_combos(

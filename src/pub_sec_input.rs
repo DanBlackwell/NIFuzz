@@ -33,7 +33,7 @@ pub enum MutateTarget {
     All,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum InputContentsFlags {
     PublicExplicitInput = 0b1000_0000,
     SecretExplicitInput = 0b0100_0000,
