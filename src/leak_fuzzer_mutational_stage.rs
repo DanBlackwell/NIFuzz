@@ -320,6 +320,7 @@ where
             InputContentsFlags::SecretHeapMemory,
         ];
         let mut effectual_parts = vec![];
+        let mut longest_part_bits = 0;
         for part in potential_parts {
             if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretExplicitInput) {
                 let inverted = buf.iter().map(|byte| byte ^ 0xFF).collect::<Vec<u8>>();
@@ -330,11 +331,16 @@ where
 
                 if output != *metadata.original_output.as_ref().unwrap() {
                     effectual_parts.push(part);
+                    longest_part_bits = std::cmp::max(buf.len(), longest_part_bits);
                 }
             }
         }
 
-        let bitflip_map = self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts).unwrap();
+        let bitflip_map = if longest_part_bits > 1000 {
+            self.quick_find_all_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts)
+        } else {
+            self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts)
+        }.unwrap();
 
         // For input bits that map to many output bit flips, find the furthest distance 
         // as we will extend the secret input by this amount
@@ -373,8 +379,9 @@ where
             }
         }
 
-        // TODO: If EVERY bit of the explicit secret input leaks to output then we should
-        //       probably also extend; just in case
+        // TODO: If EVERY bit (from the start to the middle, or middle to end, or start to end) of 
+        //       the explicit secret input leaks to output then we should probably also extend; 
+        //       just in case
 
         let mut extended_input = input.clone();
         drop(input);
@@ -384,6 +391,7 @@ where
                 let mut current_bytes = extended_input.get_part_bytes(input_part).unwrap().to_owned();
                 current_bytes.append(&mut vec![0u8; extend_dist]);
                 extended_input.set_part_bytes(input_part, &current_bytes);
+                longest_part_bits = std::cmp::max(current_bytes.len(), longest_part_bits);
                 extensions.push(input_part);
             }
         }
@@ -391,7 +399,11 @@ where
         // Collect new `original_output` for this extended input
         self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
 
-        let extended_bitflip_map = self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)?;
+        let extended_bitflip_map = if longest_part_bits > 1000 {
+            self.quick_find_all_bitflips(fuzzer, executor, state, manager, &extended_input, &effectual_parts)
+        } else {
+            self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &extended_input, &effectual_parts)
+        }.unwrap();
 
         {
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&extended_input).unwrap();
@@ -693,7 +705,7 @@ where
             flipped_bits
     }
 
-    pub fn leak_test_all_bitflips(
+    pub fn leak_test_all_individual_bitflips(
         &mut self,
         fuzzer: &mut Z,
         executor: &mut E,
