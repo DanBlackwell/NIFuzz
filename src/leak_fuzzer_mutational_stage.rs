@@ -1,6 +1,6 @@
 
 use core::marker::PhantomData;
-
+use bitvec::prelude::{BitVec, Msb0};
 use hashbrown::{HashSet, HashMap};
 use rand::{seq::IteratorRandom, thread_rng};
 
@@ -15,12 +15,12 @@ use libafl::{
     stages::{Stage, MutationalStage, mutational::MutatedTransformPost},
     start_timer,
     state::{HasClientPerfMonitor, HasCorpus, HasRand, UsesState},
-    Error, HasScheduler, executors::HasObservers,
+    Error, HasScheduler, executors::HasObservers, inputs::Input,
 };
 use libafl_bolts::{rands::Rand, tuples::MatchName};
 use crate::{
     leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
-    pub_sec_mutations::SecretUniformMutator, 
+    pub_sec_mutations::{SecretUniformMutator, PubSecByteFlipMutator}, 
     pub_sec_input::{PubSecInput, MutateTarget, InputContentsFlags}, 
     output_leak_fuzzer::HasHypertestFeedback, 
     hypertest_feedback::{HypertestFeedback, BitflipMap, InputBitLocation, OutputBitLocation}, output_feedback::{OutputSource, OutputData}, output_observer::OutputObserver
@@ -484,6 +484,145 @@ where
         // }
 
         Ok(())
+    }
+
+    fn quick_find_all_bitflips(
+        &mut self,
+        fuzzer: &mut Z,
+        executor: &mut E,
+        state: &mut Z::State,
+        manager: &mut EM,
+        input: &<<Z as UsesState>::State as UsesInput>::Input,
+        input_parts: &[InputContentsFlags],
+    ) -> Result<BitflipMap, Error> {
+        let mut bitflip_map = BitflipMap::new();
+        for &input_part in input_parts {
+            let input_len_bits = (8 * input.get_part_bytes(input_part).unwrap().len()) as u32;
+            let highest_bit = 1 << input_len_bits.ilog2();
+            let mut output_bitflips = vec![];
+
+            let (original_bitvec_stdout, original_bitvec_stderr) = {
+                let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+                let original_output = metadata.original_output.as_ref().unwrap();
+                (
+                    BitVec::<_, Msb0>::from_slice(&original_output.stdout), 
+                    BitVec::<_, Msb0>::from_slice(&original_output.stderr)
+                )
+            };
+
+            let mut current_bit = 0;
+            while current_bit <= highest_bit {
+                let mut input = input.clone();
+                let secret_bytes = input.get_part_bytes(input_part).unwrap();
+                let mut secret_bits = BitVec::<_, Msb0>::from_slice(secret_bytes);
+                for bit_num in 0..secret_bits.len() {
+                    // to start with flip every single bit
+                    if current_bit == 0 || (bit_num / current_bit) % 2 == 1 { 
+                        let cur = secret_bits[bit_num];
+                        secret_bits.set(bit_num, !cur);
+                    }
+                }
+                input.set_part_bytes(input_part, &secret_bits.into_vec());
+
+                let output = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input)?;
+                let xored = OutputData {
+                    stdout: (BitVec::<_, Msb0>::from_vec(output.stdout) ^ original_bitvec_stdout.clone()).into_vec(),
+                    stderr: (BitVec::<_, Msb0>::from_vec(output.stderr) ^ original_bitvec_stderr.clone()).into_vec(),
+                };
+                output_bitflips.push(xored);
+
+                if current_bit == 0 {
+                    current_bit = 1;
+                } else {
+                    current_bit <<= 1;
+                }
+            }
+            
+            let (longest_stdout, longest_stderr) = {
+                let mut longest_stdout = 0usize;
+                let mut longest_stderr = 0usize;
+                for output in &output_bitflips {
+                    if output.stdout.len() > longest_stdout {
+                        if longest_stdout > 0 {
+                            println!("Unexpectedly found a stdout that was longer ({}) than the previous ({})",
+                                output.stdout.len(), longest_stdout);
+                        }
+                        longest_stdout = output.stdout.len();
+                    }
+                    if output.stderr.len() > longest_stderr {
+                        if longest_stderr > 0 {
+                            println!("Unexpectedly found a stderr that was longer ({}) than the previous ({})",
+                                output.stdout.len(), longest_stderr);
+                        }
+                        longest_stderr = output.stdout.len();
+                    }
+                }
+                (longest_stdout, longest_stderr)
+            };
+            let mut consolidated_stdout = vec![None; longest_stdout];
+            let mut consolidated_stderr = vec![None; longest_stderr];
+            for (index, output_data) in output_bitflips.into_iter().enumerate() {
+                if index == 0 {
+                    for (index, bit) in BitVec::<_, Msb0>::from_vec(output_data.stdout).iter().enumerate() {
+                        if *bit { consolidated_stdout[index] = Some(0); }
+                    }
+                    for (index, bit) in BitVec::<_, Msb0>::from_vec(output_data.stderr).iter().enumerate() {
+                        if *bit { consolidated_stderr[index] = Some(0); }
+                    }
+                } else {
+                    let bit_value = 1usize << (index - 1);
+                    for (index, bit) in BitVec::<_, Msb0>::from_vec(output_data.stdout).iter().enumerate() {
+                        if *bit { 
+                            if let Some(current_val) = consolidated_stdout[index] {
+                                consolidated_stdout[index] = Some(current_val + bit_value);
+                            } else {
+                                println!("Found bit flip at index {} of stdout, when all bitflips did not discover this - discarding", index);
+                            }
+                        }
+                    }
+                    for (index, bit) in BitVec::<_, Msb0>::from_vec(output_data.stderr).iter().enumerate() {
+                        if *bit { 
+                            if let Some(current_val) = consolidated_stderr[index] {
+                                consolidated_stderr[index] = Some(current_val + bit_value);
+                            } else {
+                                println!("Found bit flip at index {} of stderr, when all bitflips did not discover this - discarding", index);
+                            }
+                        }
+                    }
+                }
+            }
+
+            println!("After all that, we have a mapping from input bit to stdout: {:?}", consolidated_stdout);
+            let mut input_to_output_mapping = HashMap::<InputBitLocation, Vec<OutputBitLocation>>::new();
+            for (index, input_bit_num) in consolidated_stdout.iter().enumerate() {
+                if let Some(input_bit_num) = input_bit_num {
+                    let input_location = InputBitLocation { part: input_part, bit_num: *input_bit_num};
+                    let output_location = OutputBitLocation { source: OutputSource::Stdout, bit_num: index };
+                    if let Some(out_vec) = input_to_output_mapping.get_mut(&input_location) {
+                        out_vec.push(output_location);
+                    } else {
+                        input_to_output_mapping.insert(input_location, vec![output_location]);
+                    }
+                }
+            }
+            for (index, input_bit_num) in consolidated_stderr.iter().enumerate() {
+                if let Some(input_bit_num) = input_bit_num {
+                    let input_location = InputBitLocation { part: input_part, bit_num: *input_bit_num };
+                    let output_location = OutputBitLocation { source: OutputSource::Stderr, bit_num: index };
+                    if let Some(out_vec) = input_to_output_mapping.get_mut(&input_location) {
+                        out_vec.push(output_location);
+                    } else {
+                        input_to_output_mapping.insert(input_location, vec![output_location]);
+                    }
+                }
+            }
+
+            for (input_location, output_locations) in input_to_output_mapping {
+                bitflip_map.insert_entry(input_location, output_locations);
+            }
+        }
+
+        Ok(bitflip_map)
     }
 
     fn execute_input_and_collect_output(
