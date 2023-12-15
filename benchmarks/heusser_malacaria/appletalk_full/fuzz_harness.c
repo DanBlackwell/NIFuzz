@@ -19,21 +19,21 @@ int main(int argc, char **argv)
 
   // handle PUBLIC
 
-	if (PUBLIC_LEN < sizeof(struct atalk_sock) + sizeof(int)) return 1;
+	if (EXPLICIT_PUBLIC_LEN < sizeof(struct atalk_sock) + sizeof(int)) return 1;
 
 	static struct socket sock = {0};
 	static struct atalk_sock a_sock = {0};
-	memcpy(&a_sock, PUBLIC_IN, sizeof(a_sock));
+	memcpy(&a_sock, EXPLICIT_PUBLIC_IN, sizeof(a_sock));
 	sock.sk = (struct sock *)&a_sock;
 
 	static struct sockaddr_at uaddr = {0};
 	static int uaddr_len;
-	peer = *(int *)(PUBLIC_IN + sizeof(a_sock));
+	peer = *(int *)(EXPLICIT_PUBLIC_IN + sizeof(a_sock));
 
   // handle SECRET
-  initMemFillBuf(SECRET_IN, SECRET_LEN);
+  initMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
   enableMemWrap();
-  FILL_STACK(SECRET_IN, SECRET_LEN);
+  FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
 
   // execute the function
 

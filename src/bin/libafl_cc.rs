@@ -36,16 +36,52 @@ pub fn main() {
               .cpp(is_cpp)
                           // Enable libafl's coverage instrumentation
               .add_arg("-mllvm")
-              .add_arg("-ctx") // Context sensitive coverage
+              .add_arg("-ctx"); // Context sensitive coverage
               // Imitate afl-cc's compile definitions 
-              .add_arg("-D__AFL_FUZZ_INIT()=int __afl_sharedmem_fuzzing = 1;extern unsigned int *__afl_fuzz_len;extern unsigned char *__afl_fuzz_ptr;unsigned char __afl_fuzz_alt[1048576];unsigned char *__afl_fuzz_alt_ptr = __afl_fuzz_alt;unsigned char *Data; int Size;uint32_t public_len, secret_len;uint8_t *public_in, *secret_in;void libafl_start_forkserver(void)")
-              .add_arg("-D__AFL_FUZZ_TESTCASE_BUF=(__afl_fuzz_ptr ? __afl_fuzz_ptr : __afl_fuzz_alt_ptr)")
+              let fuzz_init = "-D__AFL_FUZZ_INIT()=\
+                int __afl_sharedmem_fuzzing = 1;\
+                extern unsigned int *__afl_fuzz_len;\
+                extern unsigned char *__afl_fuzz_ptr;\
+                unsigned char __afl_fuzz_alt[1048576];\
+                unsigned char *__afl_fuzz_alt_ptr = __afl_fuzz_alt;\
+                void libafl_start_forkserver(void);\
+                enum { HAS_EXPLICIT_PUB_IN = 0x80, HAS_EXPLICIT_SEC_IN = 0x40, HAS_STACK_MEM_IN = 0x20, HAS_HEAP_MEM_IN = 0x10 };\
+                unsigned char *__data;\
+                int __len;\
+                uint32_t _explicit_public_len = 0, _explicit_secret_len = 0, _stack_mem_len = 0, _heap_mem_len = 0;\
+                uint8_t *_explicit_public_in = NULL, *_explicit_secret_in = NULL, *_stack_mem_in = NULL, *_heap_mem_in = NULL;";
+            cc.add_arg(fuzz_init)
               .add_arg("-D__AFL_FUZZ_TESTCASE_LEN=(__afl_fuzz_ptr ? *__afl_fuzz_len : (*__afl_fuzz_len = read(0, __afl_fuzz_alt_ptr, 1048576)) == 0xffffffff ? 0 : *__afl_fuzz_len)")
-              .add_arg("-DPUBLIC_IN=public_in")
-              .add_arg("-DPUBLIC_LEN=public_len")
-              .add_arg("-DSECRET_IN=secret_in")
-              .add_arg("-DSECRET_LEN=secret_len")
-              .add_arg("-D__AFL_INIT()=libafl_start_forkserver();Data=__AFL_FUZZ_TESTCASE_BUF;Size=__AFL_FUZZ_TESTCASE_LEN;public_len=*(uint32_t *)Data;secret_len=Size - public_len - sizeof(public_len);public_in=Data + sizeof(public_len);secret_in=public_in + public_len;");
+              .add_arg("-D__AFL_FUZZ_TESTCASE_BUF=(__afl_fuzz_ptr ? __afl_fuzz_ptr : __afl_fuzz_alt_ptr)")
+              .add_arg("-D__AFL_INIT()=libafl_start_forkserver();\
+                __data=__AFL_FUZZ_TESTCASE_BUF;\
+                __len =__AFL_FUZZ_TESTCASE_LEN;\
+                uint32_t __pos = 0;\
+                uint8_t _input_parts_indicator = __data[__pos++];\
+                CHECK_AND_PARSE_LEN(HAS_EXPLICIT_PUB_IN, _explicit_public_len);\
+                CHECK_AND_PARSE_LEN(HAS_EXPLICIT_SEC_IN, _explicit_secret_len);\
+                CHECK_AND_PARSE_LEN(HAS_STACK_MEM_IN, _heap_mem_len);\
+                CHECK_AND_PARSE_LEN(HAS_HEAP_MEM_IN, _stack_mem_len);\
+                CHECK_AND_PARSE_VAL(HAS_EXPLICIT_PUB_IN, _explicit_public_in, _explicit_public_len);\
+                CHECK_AND_PARSE_VAL(HAS_EXPLICIT_SEC_IN, _explicit_secret_in, _explicit_secret_len);\
+                CHECK_AND_PARSE_VAL(HAS_STACK_MEM_IN, _heap_mem_in, _heap_mem_len);\
+                CHECK_AND_PARSE_VAL(HAS_HEAP_MEM_IN, _stack_mem_in, _stack_mem_len);");
+
+            let extra_defines = [
+                "-DCHECK_AND_PARSE_LEN(flag, var)=if (_input_parts_indicator & flag) { var = *(typeof(var) *)(__data + __pos); __pos += sizeof(var); }",
+                "-DCHECK_AND_PARSE_VAL(flag, buf, len)=if (_input_parts_indicator & flag) { buf = __data + __pos; __pos += len; }",
+                "-DEXPLICIT_PUBLIC_IN=_explicit_public_in",
+                "-DEXPLICIT_PUBLIC_LEN=_explicit_public_len",
+                "-DEXPLICIT_SECRET_IN=_explicit_secret_in",
+                "-DEXPLICIT_SECRET_LEN=_explicit_secret_len",
+                "-DSTACK_MEM_IN=_stack_mem_in",
+                "-DSTACK_MEM_LEN=_stack_mem_len",
+                "-DHEAP_MEM_IN=_heap_mem_in",
+                "-DHEAP_MEM_LEN=_heap_mem_len",
+            ];
+            for define in extra_defines {
+                cc.add_arg(define);
+            }
         }
 
         if let Some(code) = cc.run()

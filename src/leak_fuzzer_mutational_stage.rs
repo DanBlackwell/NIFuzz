@@ -117,8 +117,7 @@ where
         drop(testcase);
 
         mark_feature_time!(state, PerfFeature::GetInputFromCorpus);
-        let orig_mutate_target = input.get_current_mutate_target();
-        match orig_mutate_target {
+        match input.get_current_mutate_target() {
             MutateTarget::All => self.run_hypertests(fuzzer, executor, state, manager, corpus_idx, &input)?,
             _ => {
                 let num = self.iterations(state, corpus_idx)?;
@@ -274,11 +273,16 @@ where
                 },
             };
    
-            start_timer!(state);
-            let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
-            mark_feature_time!(state, PerfFeature::Mutate);
+            // if we're mutating public, or the program has an explicit secret input (not all do)
+            if input.get_current_mutate_target() != MutateTarget::SecretExplicitInput ||
+                input.get_part_bytes(InputContentsFlags::SecretExplicitInput).is_some() {
+                start_timer!(state);
+                let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
+                mark_feature_time!(state, PerfFeature::Mutate);
 
-            if mutated == MutationResult::Skipped { continue; }
+                if mutated == MutationResult::Skipped { continue; }
+            }
+
 
             if phase == 0 { cached_input = input.clone(); }
             phase = (phase + 1) % 3;

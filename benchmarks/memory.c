@@ -56,6 +56,10 @@ void *__wrap_malloc(size_t bytes) {
   uint8_t *raw = (uint8_t *)__real_malloc(adjustedBytes);
 
   if (!memFillLen) goto out;
+  if (memFillLen == 1) {
+    memset(raw, *memFillBuf, adjustedBytes);
+    goto out;
+  }
 
   for (size_t i = 0; i < adjustedBytes; i += memFillLen) {
     uint32_t bufRemaining = memFillLen - memFillBufPos;

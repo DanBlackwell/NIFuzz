@@ -33,7 +33,7 @@ pub enum MutateTarget {
     All,
 }
 
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug,Hash, Clone, Copy, PartialEq, Eq)]
 pub enum InputContentsFlags {
     PublicExplicitInput = 0b1000_0000,
     SecretExplicitInput = 0b0100_0000,
@@ -411,15 +411,18 @@ impl Input for PubSecBytesInput {
         match obj {
             Object(map) => {
                 let parse_field = |map: &Map<String, Value>, key| {
-                    let val = map.get(key).expect(&format!("missing \"{}\" field", key));
-                    match val {
-                        Value::String(string) => Ok(string.to_owned()),
-                        _ => Err(format!("{} was not a string (was {:?})", key, val))
+                    if let Some(val) = map.get(key) {  // .expect(&format!("missing \"{}\" field", key));
+                        match val {
+                            Value::String(string) => Some(string.to_owned()),
+                            _ => panic!("{} was not a string (was {:?})", key, val),
+                        }
+                    } else {
+                        None
                     }
                 };
                 macro_rules! parse {
                     ($field: literal) => {
-                        if let Ok(buf) = parse_field(&map, $field) {
+                        if let Some(buf) = parse_field(&map, $field) {
                             let raw = general_purpose::STANDARD.decode(buf).unwrap();
                             Some(raw)
                         } else {
