@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void initMemFillBuf(const uint8_t *buf, const uint32_t len);
-void enableMemWrap(void);
-void disableMemWrap(void);
+void initHeapMemFillBuf(const uint8_t *buf, const uint32_t len);
+void enableHeapMemWrap(void);
+void disableHeapMemWrap(void);
 void *get_stack_top(void);
 void *get_cur_stack_bottom(void);
 void *get_min_stack_bottom(void);
@@ -42,7 +42,6 @@ extern uint64_t __cur_buf_pos;
     } while (__cur_addr < __stack_top); \
   } \
 }
-
 
 /* uint64_t *__stack_bottom_ptr, *__stack_top_ptr; \
  uint64_t *__stack_backup; \

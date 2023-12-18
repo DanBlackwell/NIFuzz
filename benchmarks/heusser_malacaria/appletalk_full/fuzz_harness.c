@@ -31,8 +31,7 @@ int main(int argc, char **argv)
 	peer = *(int *)(EXPLICIT_PUBLIC_IN + sizeof(a_sock));
 
   // handle SECRET
-  initMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
-  enableMemWrap();
+  initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
   FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
 
   // execute the function

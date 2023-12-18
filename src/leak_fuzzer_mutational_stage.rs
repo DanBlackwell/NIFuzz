@@ -326,7 +326,7 @@ where
         let mut longest_part_bits = 0;
         {
             let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-            println!("ORIGINAL OUTPUT: {}", metadata.original_output.to_string());
+            // println!("ORIGINAL OUTPUT: {}", metadata.original_output.to_string());
         }
         for part in potential_parts {
             if let Some(buf) = input.get_part_bytes(part) {
@@ -336,10 +336,10 @@ where
                 let output = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input).unwrap();
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
 
-                println!("{:?} FLIPPED OUTPUT: {}", part, output.to_string());
+                // println!("{:?} FLIPPED OUTPUT: {}", part, output.to_string());
                 if output != metadata.original_output {
                     effectual_parts.push(part);
-                    println!("Ok, adding {:?} to the effectual_parts list", part);
+                    // println!("Ok, adding {:?} to the effectual_parts list", part);
                     longest_part_bits = std::cmp::max(buf.len(), longest_part_bits);
                 }
             }
@@ -387,7 +387,7 @@ where
 
             // Ok, no one-to-many mappings so don't bother extending the input for now
             if max_dists.iter().filter(|(_, &extend_dist)| extend_dist > 0).count() == 0 {
-                if metadata.bitflip_flips_output_bits.mapped_inputs_count() == 0 {
+                if metadata.bitflip_flips_output_bits.mapped_inputs_counts().is_empty() {
                     metadata.bitflips_do_not_map = true;
                 }
                 metadata.completed_deterministic_bitflips = true;
@@ -425,7 +425,7 @@ where
 
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&extended_input).unwrap();
         metadata.bitflip_flips_output_bits = extended_bitflip_map;
-        if metadata.bitflip_flips_output_bits.mapped_inputs_count() == 0 {
+        if metadata.bitflip_flips_output_bits.mapped_inputs_counts().is_empty() {
             metadata.bitflips_do_not_map = true;
         }
         metadata.completed_deterministic_bitflips = true;
@@ -715,7 +715,7 @@ where
                     Self::retrieve_bitflip_differences(&metadata.original_output, &output_data)
                 };
 
-                println!("Observed diffs for input bit at {:?} {}: {:?}", input_part, i, diffs);
+                // println!("Observed diffs for input bit at {:?} {}: {:?}", input_part, i, diffs);
                 bitflip_map.insert_entry(InputBitLocation { part: input_part, bit_num: i }, diffs);
             }
         }

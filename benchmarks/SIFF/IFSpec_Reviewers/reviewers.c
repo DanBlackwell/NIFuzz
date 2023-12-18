@@ -70,19 +70,19 @@ int main(void) {
         .len = 0 
     };
 
-    int numReviewers = PUBLIC_IN[0] % 8 + 2;
+    int numReviewers = EXPLICIT_PUBLIC_IN[0] % 8 + 2;
     int secretPos = 0, publicPos = 1;
 
-    for (int i = 0; i < numReviewers && publicPos < PUBLIC_LEN; i++) {
+    for (int i = 0; i < numReviewers && publicPos < EXPLICIT_PUBLIC_LEN; i++) {
         unsigned int reviewerID = 0;
-        int secLen = SECRET_LEN - secretPos;
+        int secLen = EXPLICIT_SECRET_LEN - secretPos;
         if (secLen == 0) {
             reviewerID = i;
         } else {
             int len = secLen < sizeof(reviewerID) ? secLen : sizeof(reviewerID);
 
             for (int j = secretPos; j < secretPos + len; j++) {
-                reviewerID |= (int)SECRET_IN[j] << 8 * (j - secretPos);
+                reviewerID |= (int)EXPLICIT_SECRET_IN[j] << 8 * (j - secretPos);
             }
 
             while (true) {
@@ -100,14 +100,14 @@ int main(void) {
         }
 
         int reviewScore = 1;
-        if (publicPos < PUBLIC_LEN) {
-            reviewScore = PUBLIC_IN[publicPos++] % 4 + 1;
+        if (publicPos < EXPLICIT_PUBLIC_LEN) {
+            reviewScore = EXPLICIT_PUBLIC_IN[publicPos++] % 4 + 1;
         }
 
         int reviewLen = 0;
-        if (PUBLIC_LEN - publicPos > 5) {
+        if (EXPLICIT_PUBLIC_LEN - publicPos > 5) {
             // 5-31 characers per review
-            reviewLen = PUBLIC_IN[publicPos] % (PUBLIC_LEN - publicPos - 5) + 5;
+            reviewLen = EXPLICIT_PUBLIC_IN[publicPos] % (EXPLICIT_PUBLIC_LEN - publicPos - 5) + 5;
             publicPos++;
         } else {
             // Don't try forming a review with comment <5 chars long
@@ -117,7 +117,7 @@ int main(void) {
         char *reviewComment = malloc(reviewLen);
         char *tmp = reviewComment;
         for (int i = 0; i < reviewLen; i++) {
-            *tmp = PUBLIC_IN[publicPos++];
+            *tmp = EXPLICIT_PUBLIC_IN[publicPos++];
             // Overwrite any \0's so the string doesn't terminate early
             if (*tmp) tmp++;
         }

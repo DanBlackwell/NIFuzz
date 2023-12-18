@@ -106,38 +106,36 @@ __AFL_FUZZ_INIT();
 
 int main(int argc, char **argv) 
 {
-	__AFL_INIT();
+  __AFL_INIT();
 	
   // handle SECRET
-
-  initMemFillBuf(SECRET_IN, SECRET_LEN);
-  enableMemWrap();
+  initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
   
   // handle PUBLIC
   
   static size_t nbytes = 0;
   static loff_t ppos = 0;
-  if (PUBLIC_LEN < sizeof(nbytes) + sizeof(ppos) + 4) {
+  if (EXPLICIT_PUBLIC_LEN < sizeof(nbytes) + sizeof(ppos) + 4) {
     return 1;
   }
   
   static int pos = 0;
-  nbytes = *(size_t *)PUBLIC_IN; 
+  nbytes = *(size_t *)EXPLICIT_PUBLIC_IN; 
   pos += sizeof(nbytes);
-  ppos = *(loff_t *)(PUBLIC_IN + pos);
+  ppos = *(loff_t *)(EXPLICIT_PUBLIC_IN + pos);
   pos += sizeof(ppos);
   
   static struct ctr_struct internal_structure = {}; 
   static int bufsz;
-  bufsz = PUBLIC_LEN - pos;
+  bufsz = EXPLICIT_PUBLIC_LEN - pos;
   internal_structure.bufsz = bufsz;
   internal_structure.buf = malloc(bufsz);
-  memcpy(internal_structure.buf, PUBLIC_IN + pos, bufsz);
+  memcpy(internal_structure.buf, EXPLICIT_PUBLIC_IN + pos, bufsz);
   static struct file the_file = { .private_data = (void *)&internal_structure };
   
   // execute the function
   
-  FILL_STACK(SECRET_IN, SECRET_LEN);
+  FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
   cpuset_tasks_read(&the_file, NULL, nbytes, &ppos);
   
   return 0;

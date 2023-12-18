@@ -102,25 +102,16 @@ int main(void) {
 
     __AFL_INIT();
 
-    unsigned char *Data = __AFL_FUZZ_TESTCASE_BUF;  // must be after __AFL_INIT
-    int Size = __AFL_FUZZ_TESTCASE_LEN;  // don't use the macro directly in a
-                                          // call!
-
-    uint32_t public_len = *(unsigned int *)Data;
-    uint32_t secret_len = Size - public_len - sizeof(public_len);
-    const uint8_t *public_in = Data + sizeof(public_len);
-    const uint8_t *secret_in = public_in + public_len;
-
     dollars depositAmount = 0;
-    for (int i = 0; i < (secret_len < sizeof(dollars) ? secret_len : sizeof(dollars)); i++) {
-        depositAmount |= secret_in[i] << 8 * i;
+    for (int i = 0; i < (EXPLICIT_SECRET_LEN < sizeof(dollars) ? EXPLICIT_SECRET_LEN : sizeof(dollars)); i++) {
+        depositAmount |= EXPLICIT_SECRET_IN[i] << 8 * i;
     }
     if (depositAmount < 0) { depositAmount = -depositAmount; }
     if (depositAmount == 0) { depositAmount = 1; }
 
     dollars transferAmount = 0;
-    for (int i = 0; i < (public_len < sizeof(dollars) ? public_len : sizeof(dollars)); i++) {
-        transferAmount |= public_in[i] << 8 * i;
+    for (int i = 0; i < (EXPLICIT_PUBLIC_LEN < sizeof(dollars) ? EXPLICIT_PUBLIC_LEN : sizeof(dollars)); i++) {
+        transferAmount |= EXPLICIT_PUBLIC_IN[i] << 8 * i;
     }
     if (transferAmount < 0) { transferAmount = -transferAmount; }
 

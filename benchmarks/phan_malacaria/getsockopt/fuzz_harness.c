@@ -14,23 +14,22 @@ int main(void)
 
   // handle SECRET
 
-  initMemFillBuf(SECRET_IN, SECRET_LEN);
-  enableMemWrap();
+  initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
   
   // handle PUBLIC
   
-  if (PUBLIC_LEN < sizeof(struct sock) + 1) return 1;
+  if (EXPLICIT_PUBLIC_LEN < sizeof(struct sock) + 1) return 1;
 
   static struct sock mySock;
-  memcpy(&mySock, PUBLIC_IN, sizeof(mySock));
+  memcpy(&mySock, EXPLICIT_PUBLIC_IN, sizeof(mySock));
   static struct socket mySocket = {0};
   mySocket.sk = &mySock;
-  static char optname; optname = *(PUBLIC_IN + sizeof(mySock));
+  static char optname; optname = *(EXPLICIT_PUBLIC_IN + sizeof(mySock));
   static char optval[80];
   static int optlen = sizeof(optval);
   
-  FILL_STACK(SECRET_IN, SECRET_LEN);
   static int res;
+  FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
   res = sco_sock_getsockopt_old(&mySocket, optname, optval, &optlen);
   write(1, &res, sizeof(res));
   write(1, optval, optlen);

@@ -27,17 +27,17 @@ uint8_t *__stack_top;
 uint8_t *__cur_addr;
 uint64_t __cur_buf_pos;
 
-void initMemFillBuf(const uint8_t *buf, const uint32_t len) {
-//  memFillBuf = __real_malloc(len);
+void initHeapMemFillBuf(const uint8_t *buf, const uint32_t len) {
   memFillLen = len;
   memcpy(memFillBuf, buf, len);
-}
-
-void enableMemWrap() {
   memWrapEnabled = 1;
 }
 
-void disableMemWrap() {
+void enableHeapMemWrap() {
+  memWrapEnabled = 1;
+}
+
+void disableHeapMemWrap() {
   memWrapEnabled = 0;
 }
 

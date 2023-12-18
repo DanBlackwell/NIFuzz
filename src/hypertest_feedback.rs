@@ -1,4 +1,5 @@
 use hashbrown::{HashMap, HashSet};
+use libc::accept;
 use core::marker::PhantomData;
 use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, process::Output};
 use libafl_bolts::{ErrorBacktrace, Error};
@@ -73,8 +74,17 @@ impl BitflipMap {
 
     pub fn len(&self) -> usize { self.map.len() }
 
-    pub fn mapped_inputs_count(&self) -> usize {
-        self.map.values().fold(0usize, |acc, o| acc + if o.is_empty() { 0 } else { 1 })
+    pub fn mapped_inputs_counts(&self) -> HashMap<InputContentsFlags, usize> {
+        let mut out = HashMap::new();
+        for in_loc in self.map.keys() {
+            if let Some(count) = out.get_mut(&in_loc.part) {
+                *count += 1;
+            } else {
+                out.insert(in_loc.part, 1);
+            }
+        }
+
+        out
     }
 
     pub fn iterate_map(&self) -> hashbrown::hash_map::Iter<'_, InputBitLocation, HashSet<OutputBitLocation>> {
@@ -713,6 +723,7 @@ where
         let mut output_violation_entropy_sum = 0.0_f64;
         let mut violation_entropy_sum = 0.0_f64;
         let mut most_output_distinctions = 0;
+        let mut most_bitflips_locations = None;
         let mut most_bitflips_leaked = 0;
         const MIN_HITS: usize = 1_000;
 
@@ -729,8 +740,12 @@ where
             let hash_val = self.dict.get(violation_pub_in_hash).unwrap();
             if let Some(metadata) = &hash_val.leak_quantify_metadata {
                 if !metadata.bitflips_do_not_map && metadata.completed_deterministic_bitflips {
-                    let bitflips_leaked = metadata.bitflip_flips_output_bits.mapped_inputs_count();
-                    most_bitflips_leaked = std::cmp::max(bitflips_leaked, most_bitflips_leaked);
+                    let bitflips_leaked = metadata.bitflip_flips_output_bits.mapped_inputs_counts();
+                    let count = bitflips_leaked.values().fold(0, |acc, &x| acc + x);
+                    if count > most_bitflips_leaked {
+                        most_bitflips_leaked = count;
+                        most_bitflips_locations = Some(bitflips_leaked);
+                    }
                 }
             }
 
@@ -781,7 +796,17 @@ where
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
         println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
-        println!("Most bits leaked directly from input to output: {most_bitflips_leaked}");
+
+        print!("Most bits leaked directly from input to output: {most_bitflips_leaked}.");
+        if let Some(bitflip_locations) = most_bitflips_locations {
+            print!(" From: {{");
+            for (source, count) in bitflip_locations {
+                print!("{:?}: {}, ", source, count);
+            }
+            println!("}}");
+        }
+        println!("");
+
         println!("Max distinctions on output: {most_output_distinctions} (channel capacity: {:.02} bits)", (most_output_distinctions as f64).log2());
 
         let stats = self.stads_uniform_secrets_leakage();

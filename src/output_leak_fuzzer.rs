@@ -437,7 +437,7 @@ where
 
                             macro_rules! maybe_truncate {
                                 ($arr:expr) => {
-                                    if $arr.len() > 60 { &$arr[..60] } else { $arr }
+                                    if $arr.len() > 120 { &$arr[..120] } else { $arr }
                                 };
                             }
 

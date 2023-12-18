@@ -137,23 +137,22 @@ int main(int argc, char **argv)
 	
     // handle SECRET
 
-    initMemFillBuf(SECRET_IN, SECRET_LEN);
-    enableMemWrap();
+    initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
 
     // handle PUBLIC
 
 	static stack_t uss = {0};
-	if (PUBLIC_LEN < sizeof(uss.ss_flags)) {
+	if (EXPLICIT_PUBLIC_LEN < sizeof(uss.ss_flags)) {
 		return 1;
 	}
 
 	static int pos = 0;
-	uss.ss_flags = *(int *)PUBLIC_IN;
+	uss.ss_flags = *(int *)EXPLICIT_PUBLIC_IN;
 	pos += sizeof(uss.ss_flags);
-	uss.ss_size = PUBLIC_LEN - pos;
+	uss.ss_size = EXPLICIT_PUBLIC_LEN - pos;
 	// just be safe and make a copy of public_in in case we overwrite the shared mem somehow
-	stack = malloc(PUBLIC_LEN - pos);
-	memcpy(stack, PUBLIC_IN + pos, PUBLIC_LEN - pos);
+	stack = malloc(EXPLICIT_PUBLIC_LEN - pos);
+	memcpy(stack, EXPLICIT_PUBLIC_IN + pos, EXPLICIT_PUBLIC_LEN - pos);
 	uss.ss_sp = stack;
 
 	static stack_t uoss = {0};
@@ -161,7 +160,7 @@ int main(int argc, char **argv)
 	current->sas_ss_sp = &uoss;
 	current->sas_ss_size = 1024;
 
-    FILL_STACK(SECRET_IN, SECRET_LEN);
+    FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
 
     // execute the function
 

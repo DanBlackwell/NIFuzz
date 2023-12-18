@@ -1394,8 +1394,7 @@ int main(int argc, char **argv)
 	__AFL_INIT();
 	
 	// handle SECRET
-	initMemFillBuf(SECRET_IN, SECRET_LEN);
-	enableMemWrap();
+	initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
 
 	static struct sk_buff skb = {0};
         skb.data = malloc(1024 * 1024);
@@ -1413,7 +1412,7 @@ int main(int argc, char **argv)
 
         static int pos = 0;
 
-#define DECODE(type, var) var = *(type *)PUBLIC_IN + pos; pos += sizeof(type); if (pos > PUBLIC_LEN) return 1;
+#define DECODE(type, var) var = *(type *)EXPLICIT_PUBLIC_IN + pos; pos += sizeof(type); if (pos > EXPLICIT_PUBLIC_LEN) return 1;
         DECODE(unsigned long, fh);
         DECODE(u32, pid);
         DECODE(u32, seq);
@@ -1423,19 +1422,19 @@ int main(int argc, char **argv)
         DECODE(int, ifindex);
         nd.ifindex = ifindex;
 
-        if (public_len - pos > 16) {
-                memcpy(ops.kind, PUBLIC_IN + pos, 15);
+        if (EXPLICIT_PUBLIC_LEN - pos > 16) {
+                memcpy(ops.kind, EXPLICIT_PUBLIC_IN + pos, 15);
                 ops.kind[15] = 0;
         } else {
-                memcpy(ops.kind, public_in + pos, PUBLIC_LEN - pos);
-                ops.kind[public_len - pos] = 0;
+                memcpy(ops.kind, EXPLICIT_PUBLIC_IN + pos, EXPLICIT_PUBLIC_LEN - pos);
+                ops.kind[EXPLICIT_PUBLIC_LEN - pos] = 0;
         }
 
         // printf("seeded: %u, initial: ", seed);
         // for (int i = 0; i < 20; i++) printf("%hhX", skb.data[i]);
         // printf("\n");
 
-	FILL_STACK(SECRET_IN, SECRET_LEN);
+	FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
 
 	      static int res;
         res = tcf_fill_node(&skb, &tp, fh, pid, seq, flags, event);
