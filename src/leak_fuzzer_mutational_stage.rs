@@ -146,8 +146,7 @@ where
         let input_ref = testcase.input_mut().as_mut().unwrap();
         let next_target = match input_ref.get_current_mutate_target() {
             MutateTarget::All => MutateTarget::PublicExplicitInput,
-            MutateTarget::PublicExplicitInput => MutateTarget::SecretExplicitInput,
-            MutateTarget::SecretExplicitInput => MutateTarget::All,
+            MutateTarget::PublicExplicitInput => MutateTarget::All,
             _ => panic!("PubSecInput does not implement {:?}", input_ref.get_current_mutate_target()),
         };
         input_ref.set_current_mutate_target(next_target);
@@ -325,19 +324,32 @@ where
         ];
         let mut effectual_parts = vec![];
         let mut longest_part_bits = 0;
+        {
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+            println!("ORIGINAL OUTPUT: {}", metadata.original_output.to_string());
+        }
         for part in potential_parts {
-            if let Some(buf) = input.get_part_bytes(InputContentsFlags::SecretExplicitInput) {
+            if let Some(buf) = input.get_part_bytes(part) {
                 let inverted = buf.iter().map(|byte| byte ^ 0xFF).collect::<Vec<u8>>();
                 let mut input = input.clone();
-                input.set_part_bytes(InputContentsFlags::SecretExplicitInput, &inverted);
+                input.set_part_bytes(part, &inverted);
                 let output = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input).unwrap();
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
 
-                if output != *metadata.original_output.as_ref().unwrap() {
+                println!("{:?} FLIPPED OUTPUT: {}", part, output.to_string());
+                if output != metadata.original_output {
                     effectual_parts.push(part);
+                    println!("Ok, adding {:?} to the effectual_parts list", part);
                     longest_part_bits = std::cmp::max(buf.len(), longest_part_bits);
                 }
             }
+        }
+
+        if effectual_parts.is_empty() {
+            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
+            metadata.bitflips_do_not_map = true;
+            metadata.completed_deterministic_bitflips = true;
+            return Ok(());
         }
 
         let bitflip_map = if longest_part_bits > 1000 {
@@ -378,6 +390,7 @@ where
                 if metadata.bitflip_flips_output_bits.mapped_inputs_count() == 0 {
                     metadata.bitflips_do_not_map = true;
                 }
+                metadata.completed_deterministic_bitflips = true;
 
                 return Ok(());
             }
@@ -393,7 +406,8 @@ where
         for (input_part, extend_dist) in max_dists {
             if extend_dist > 0 {
                 let mut current_bytes = extended_input.get_part_bytes(input_part).unwrap().to_owned();
-                current_bytes.append(&mut vec![0u8; extend_dist]);
+                println!("Extending {:?} by {} bytes (from {})", input_part, extend_dist / 8, current_bytes.len());
+                current_bytes.append(&mut vec![0u8; (extend_dist as f64 / 8.0f64).ceil() as usize]);
                 extended_input.set_part_bytes(input_part, &current_bytes);
                 longest_part_bits = std::cmp::max(current_bytes.len(), longest_part_bits);
                 extensions.push(input_part);
@@ -404,68 +418,25 @@ where
         self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
 
         let extended_bitflip_map = if longest_part_bits > 1000 {
-            self.quick_find_all_bitflips(fuzzer, executor, state, manager, &extended_input, &effectual_parts)
+            self.quick_find_all_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)
         } else {
-            self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &extended_input, &effectual_parts)
+            self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)
         }.unwrap();
 
-        {
-            let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&extended_input).unwrap();
-            metadata.bitflip_flips_output_bits = extended_bitflip_map;
+        let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&extended_input).unwrap();
+        metadata.bitflip_flips_output_bits = extended_bitflip_map;
+        if metadata.bitflip_flips_output_bits.mapped_inputs_count() == 0 {
+            metadata.bitflips_do_not_map = true;
+        }
+        metadata.completed_deterministic_bitflips = true;
+
+        let mut testcase = state.violations_mut().get(violation_idx).unwrap().borrow_mut();
+        let input = testcase.input_mut().as_mut().unwrap();
+        for part in extensions {
+            input.set_part_bytes(part, extended_input.get_part_bytes(part).unwrap());
         }
 
-        // println!("Will leak test all bitflips for input of len {} bits", input.get_secret_part_bytes().len() * 8);
-        // input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-        // let cur = input.get_mutable_current_buf_seg().to_owned();
-        // assert!(input.get_secret_part_bytes() == cur);
-        // assert!(cur.len() > 0);
 
-        // self.leak_test_all_bitflips(fuzzer, executor, state, manager, &input)?;
-
-        // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        // if metadata.bitflips_do_not_map || metadata.completed_deterministic_bitflips {
-        //     println!("bailing as bitflips_do_not_map is {} and completed_deterministic is {}",
-        //              metadata.bitflips_do_not_map, metadata.completed_deterministic_bitflips);
-        //     return Ok(());
-        // }
-
-        // // For input bits that map to many output bit flips, find the furthest distance 
-        // // as we will extend the secret input by this amount
-        // let furthest_one_to_many_dist = metadata.bitflip_flips_output_bits.iter()
-        //     .fold(0usize, |dist, map| {
-        //         let mut cur_dist = 0;
-        //         for (_, flips) in map {
-        //             if flips.len() > 1 { 
-        //                 cur_dist = std::cmp::max(cur_dist, flips.last().unwrap() - flips[0]);
-        //                 println!("Setting cur_dist to {cur_dist}");
-        //             }
-        //         }
-
-        //         std::cmp::max(cur_dist, dist)
-        //     });
-        // if furthest_one_to_many_dist == 0 {
-        //     return Ok(());
-        // }
-
-        // let extra_bytes = (furthest_one_to_many_dist as f64 / 8f64).ceil() as usize;
-        // let mut secret = input.get_secret_part_bytes().to_vec();
-        // secret.append(&mut vec![0; extra_bytes]);
-        // println!("Ok, extending violation {:?} by {extra_bytes} bytes, now len: {}", violation_idx, secret.len());
-
-        // let mut extended_input ={
-        //     let mut testcase = state.violations().get(violation_idx)?.borrow_mut();
-        //     testcase.input_mut().as_mut().unwrap().set_secret_part_bytes(&secret);
-        //     testcase.input().as_ref().unwrap().to_owned()
-        // };
-        // extended_input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
-        // {
-        //     let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-        //     metadata.bitflip_flips_output_bits = vec![];
-        //     metadata.ignored_output_bitflips = HashMap::new();
-        // }
-        // self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
-        // self.leak_test_all_bitflips(fuzzer, executor, state, manager, &extended_input)?;
-        
         // let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
         // let mut unmapped_end_bitflips = 0;
         // for out_flips in metadata.bitflip_flips_output_bits.iter().rev() {
@@ -519,7 +490,7 @@ where
 
             let (original_bitvec_stdout, original_bitvec_stderr) = {
                 let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-                let original_output = metadata.original_output.as_ref().unwrap();
+                let original_output = &metadata.original_output;
                 (
                     BitVec::<_, Msb0>::from_slice(&original_output.stdout), 
                     BitVec::<_, Msb0>::from_slice(&original_output.stderr)
@@ -682,7 +653,7 @@ where
     ) -> Result<(), Error> {
         let output_data = self.execute_input_and_collect_output(fuzzer, executor, state, manager, input)?;
         let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input)?;
-        metadata.original_output = Some(output_data);
+        metadata.original_output = output_data;
         Ok(())
     }
 
@@ -741,9 +712,10 @@ where
                 let output_data = self.execute_input_and_collect_output(fuzzer, executor, state, manager, &input)?;
                 let diffs = {
                     let metadata = fuzzer.hypertest_feedback_mut().get_leak_quantify_metadata_mut(&input).unwrap();
-                    Self::retrieve_bitflip_differences(metadata.original_output.as_ref().unwrap(), &output_data)
+                    Self::retrieve_bitflip_differences(&metadata.original_output, &output_data)
                 };
 
+                println!("Observed diffs for input bit at {:?} {}: {:?}", input_part, i, diffs);
                 bitflip_map.insert_entry(InputBitLocation { part: input_part, bit_num: i }, diffs);
             }
         }

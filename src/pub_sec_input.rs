@@ -6,7 +6,7 @@ use core::{
     hash::{BuildHasher, Hasher},
     ops::Range,
 };
-use std::{collections::hash_map::DefaultHasher, hash::Hash};
+use std::{collections::hash_map::DefaultHasher, hash::Hash, backtrace::Backtrace};
 #[cfg(feature = "std")]
 use std::{fs::File, io::Read, path::Path};
 
@@ -15,8 +15,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{
     Map,
     Value,
-    Value::Object
+    Value::Object,
+    json
 };
+use hashbrown::HashMap;
+
 use base64::{Engine, engine::general_purpose};
 
 #[cfg(feature = "std")]
@@ -33,7 +36,7 @@ pub enum MutateTarget {
     All,
 }
 
-#[derive(Debug,Hash, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
 pub enum InputContentsFlags {
     PublicExplicitInput = 0b1000_0000,
     SecretExplicitInput = 0b0100_0000,
@@ -95,14 +98,9 @@ pub trait PubSecInput: Input + HasTargetBytes {
         stack_mem_secret: Option<&[u8]>,
         heap_mem_secret: Option<&[u8]>
     ) -> Self;
-    // fn from_pub_sec_bytes(public: &[u8], secret: &[u8]) -> Self;
 
     fn get_part_bytes(&self, part: InputContentsFlags) -> Option<&[u8]>;
     fn set_part_bytes(&mut self, part: InputContentsFlags, new_buf: &[u8]);
-
-    // fn get_public_part_bytes(&self) -> Option<&[u8]>;
-    // fn get_secret_part_bytes(&self) -> &[u8];
-    // fn set_secret_part_bytes(&mut self, new_buf: &[u8]);
 
     fn get_public_input_hash(&self) -> u64;
     fn get_secret_input_hash(&self) -> u64;
@@ -110,11 +108,9 @@ pub trait PubSecInput: Input + HasTargetBytes {
     fn get_current_mutate_target(&self) -> MutateTarget;
     fn set_current_mutate_target(&mut self, new_target: MutateTarget);
 
-    // fn get_current_bytesinput(&self) -> BytesInput;
     fn update_current_buf_seg_from_bytes(&mut self, mutated_input: &[u8]);
 
     fn get_current_buf_seg(&self) -> &[u8];
-    // fn get_mutable_current_buf_seg(&mut self) -> &mut [u8];
 
     fn get_total_len(&self) -> usize;
     fn get_raw_bytes(&self) -> &[u8];
@@ -129,11 +125,13 @@ impl PubSecInput for PubSecBytesInput {
     ) -> Self {
         let mut flags_byte = 0u8;
         let mut raw_bytes = vec![];
+        let mut header_bytes = vec![];
         macro_rules! append_to_raw {
             ($buf:ident, $flag:expr) => {
                 if let Some($buf) = $buf {
+                    // println!("{} is: {:02X?}", stringify!($buf), $buf);
                     flags_byte |= $flag as u8;
-                    raw_bytes.append(&mut ($buf.len() as u32).to_ne_bytes().to_vec());
+                    header_bytes.append(&mut ($buf.len() as u32).to_ne_bytes().to_vec());
                     raw_bytes.append(&mut $buf.to_vec());
                 }
             };
@@ -143,14 +141,19 @@ impl PubSecInput for PubSecBytesInput {
         append_to_raw!(explicit_secret, InputContentsFlags::SecretExplicitInput);
         append_to_raw!(stack_mem_secret, InputContentsFlags::SecretStackMemory);
         append_to_raw!(heap_mem_secret, InputContentsFlags::SecretHeapMemory);
-        raw_bytes.insert(0, flags_byte);
+
+        let mut combined = vec![flags_byte];
+        combined.append(&mut header_bytes);
+        combined.append(&mut raw_bytes);
+
+        // println!("combined: {:02X?}", combined);
 
         let maybe_len = |buf: Option<&[u8]>| {
             if let Some(buf) = buf { Some(buf.len()) } else { None }
         };
 
         Self {
-            raw_bytes,
+            raw_bytes: combined,
             explicit_public_len: maybe_len(explicit_public),
             explicit_secret_len: maybe_len(explicit_secret),
             stack_mem_secret_len: maybe_len(stack_mem_secret),
@@ -278,17 +281,6 @@ impl PubSecInput for PubSecBytesInput {
         self.current_mutate_target = new_target;
     }
 
-    // fn get_current_bytesinput(&self) -> BytesInput {
-    //     BytesInput::new(
-    //         match self.current_mutate_target {
-    //             MutateTarget::PublicExplicitInput => self.get_public_part_bytes().to_vec(),
-    //             MutateTarget::SecretExplicitInput => self.get_secret_part_bytes().to_vec(),
-    //             MutateTarget::All => self.raw_bytes[std::mem::size_of::<u32>()..].to_vec(),
-    //             _ => panic!("PubSecInput does not implement {:?}", self.current_mutate_target)
-    //         }
-    //     )
-    // }
-
     fn update_current_buf_seg_from_bytes(&mut self, mutated_input: &[u8]) {
         match self.current_mutate_target {
             MutateTarget::PublicExplicitInput => 
@@ -324,22 +316,30 @@ impl PubSecInput for PubSecBytesInput {
 
     fn get_current_buf_seg(&self) -> &[u8] {
         let range = match self.current_mutate_target {
-            MutateTarget::PublicExplicitInput => 
-                self.get_start_offset_for_part(
+            MutateTarget::PublicExplicitInput => {
+                let start_offset = self.get_start_offset_for_part(
                     InputContentsFlags::PublicExplicitInput
-                )..self.explicit_public_len.unwrap(),
-            MutateTarget::SecretExplicitInput => 
-                self.get_start_offset_for_part(
+                );
+                start_offset..(start_offset + self.explicit_public_len.unwrap())
+            },
+            MutateTarget::SecretExplicitInput => {
+                let start_offset = self.get_start_offset_for_part(
                     InputContentsFlags::SecretExplicitInput
-                )..self.explicit_secret_len.unwrap(),
-            MutateTarget::SecretStackMemory =>
-                self.get_start_offset_for_part(
+                );
+                start_offset..(start_offset + self.explicit_secret_len.unwrap())
+            },
+            MutateTarget::SecretStackMemory => {
+                let start_offset = self.get_start_offset_for_part(
                     InputContentsFlags::SecretStackMemory
-                )..self.stack_mem_secret_len.unwrap(),
-            MutateTarget::SecretHeapMemory =>
-                self.get_start_offset_for_part(
+                );
+                start_offset..(start_offset + self.stack_mem_secret_len.unwrap())
+            },
+            MutateTarget::SecretHeapMemory => {
+                let start_offset = self.get_start_offset_for_part(
                     InputContentsFlags::SecretHeapMemory
-                )..self.heap_mem_secret_len.unwrap(),
+                );
+                start_offset..(start_offset + self.heap_mem_secret_len.unwrap())
+            },
             MutateTarget::All => {
                 let start_offset = if self.explicit_public_len.is_some() {
                     self.get_start_offset_for_part(InputContentsFlags::PublicExplicitInput)
@@ -376,20 +376,20 @@ impl Input for PubSecBytesInput {
     where
         P: AsRef<Path>,
     {
-        let mut json = "{{\n".to_string();
-        macro_rules! try_encode_and_append {
+        let mut dict = HashMap::new();
+        macro_rules! try_add_to_json {
             ($len: expr, $flag: expr, $field: literal) => {
                 if $len.is_some() {
                     let b64 = general_purpose::STANDARD.encode(self.get_part_bytes($flag).unwrap());
-                    json.push_str(format!(concat!("  \"", $field, "\": \"{}\",\n"), b64).as_str());
+                    dict.insert($field, b64);
                 }
             };
         }
-
-        try_encode_and_append!(self.explicit_public_len, InputContentsFlags::PublicExplicitInput, "EXPLICIT_PUBLIC");
-        try_encode_and_append!(self.explicit_secret_len, InputContentsFlags::SecretExplicitInput, "EXPLICIT_SECRET");
-        try_encode_and_append!(self.stack_mem_secret_len, InputContentsFlags::SecretStackMemory, "STACK_MEM_SECRET");
-        try_encode_and_append!(self.heap_mem_secret_len, InputContentsFlags::SecretHeapMemory, "HEAP_MEM_SECRET");
+        try_add_to_json!(self.explicit_public_len, InputContentsFlags::PublicExplicitInput, "EXPLICIT_PUBLIC");
+        try_add_to_json!(self.explicit_secret_len, InputContentsFlags::SecretExplicitInput, "EXPLICIT_SECRET");
+        try_add_to_json!(self.stack_mem_secret_len, InputContentsFlags::SecretStackMemory, "STACK_MEM_SECRET");
+        try_add_to_json!(self.heap_mem_secret_len, InputContentsFlags::SecretHeapMemory, "HEAP_MEM_SECRET");
+        let json = serde_json::to_string(&dict).unwrap();
 
         write_file_atomic(path, &json.as_bytes())
     }
@@ -401,17 +401,17 @@ impl Input for PubSecBytesInput {
         P: AsRef<Path>,
     {
         // panic!("Haven't implemented this yet");
-        let mut file = File::open(path)?;
+        let mut file = File::open(path).unwrap();
         let mut bytes: Vec<u8> = vec![];
-        file.read_to_end(&mut bytes)?;
+        file.read_to_end(&mut bytes).unwrap();
 
         let str = std::str::from_utf8(&bytes).unwrap();
-        let obj = serde_json::from_str(str)?;
+        let obj = serde_json::from_str(str).unwrap();
 
         match obj {
             Object(map) => {
                 let parse_field = |map: &Map<String, Value>, key| {
-                    if let Some(val) = map.get(key) {  // .expect(&format!("missing \"{}\" field", key));
+                    if let Some(val) = map.get(key) { 
                         match val {
                             Value::String(string) => Some(string.to_owned()),
                             _ => panic!("{} was not a string (was {:?})", key, val),

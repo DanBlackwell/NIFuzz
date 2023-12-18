@@ -727,19 +727,19 @@ where
         OT: ObserversTuple<CS::State>,
     {
         start_timer!(state);
-        executor.observers_mut().pre_exec_all(state, input)?;
+        executor.observers_mut().pre_exec_all(state, input).unwrap();
         mark_feature_time!(state, PerfFeature::PreExecObservers);
 
         *state.executions_mut() += 1;
 
         start_timer!(state);
-        let exit_kind = executor.run_target(self, state, event_mgr, input)?;
+        let exit_kind = executor.run_target(self, state, event_mgr, input).unwrap();
         mark_feature_time!(state, PerfFeature::TargetExecution);
 
         start_timer!(state);
         executor
             .observers_mut()
-            .post_exec_all(state, input, &exit_kind)?;
+            .post_exec_all(state, input, &exit_kind).unwrap();
         mark_feature_time!(state, PerfFeature::PostExecObservers);
 
         Ok(exit_kind)

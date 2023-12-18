@@ -441,9 +441,9 @@ where
             log::info!("Loading file {:?} ...", &path);
             let input = loader(fuzzer, self, &path)?;
             if forced {
-                let _: CorpusId = fuzzer.add_input(self, executor, manager, input)?;
+                let _: CorpusId = fuzzer.add_input(self, executor, manager, input).unwrap();
             } else {
-                let (res, _) = fuzzer.evaluate_input(self, executor, manager, input)?;
+                let (res, _) = fuzzer.evaluate_input(self, executor, manager, input).unwrap();
                 if res == ExecuteInputResult::None {
                     log::warn!("File {:?} was not interesting, skipped.", &path);
                 }

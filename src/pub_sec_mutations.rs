@@ -46,15 +46,14 @@ where
         input: &mut I,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
+        let sample = (state.rand_mut().next() as u32).to_ne_bytes();
 
-        match input.get_current_mutate_target() {
-            MutateTarget::SecretExplicitInput => (),
-            _ => panic!("Should have current mutate target set to secret")
-        };
+        for part in [InputContentsFlags::SecretExplicitInput, InputContentsFlags::SecretStackMemory, InputContentsFlags::SecretHeapMemory] {
+            if let Some(_buf) = input.get_part_bytes(part) {
+                input.set_part_bytes(part, &sample);
+            }
+        }
 
-        let sample = state.rand_mut().next() as u32;
-        input.update_current_buf_seg_from_bytes(&sample.to_ne_bytes());
         Ok(MutationResult::Mutated)
     }
 }
@@ -1117,7 +1116,7 @@ where
         let other_bytes = &other.get_current_buf_seg()[range];
 
         let mut buf = input.get_current_buf_seg().to_owned();
-        buf.copy_from_slice(&other_bytes);
+        buf[target..(target + other_bytes.len())].copy_from_slice(&other_bytes);
         input.update_current_buf_seg_from_bytes(&buf);
 
         Ok(MutationResult::Mutated)

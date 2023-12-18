@@ -27,8 +27,8 @@ impl<I> InfoLeakChecker<I> {}
 
 // #[derive(Serialize, Deserialize, SerdeAny, Debug, Clone)]
 pub struct LeakQuantifyMetadata {
-    /// Reference to the output with no bits flipped
-    pub original_output: Option<OutputData>,
+    /// Copy of the output when no bits have been flipped
+    pub original_output: OutputData,
     /// A list of bits that have been flipped for the current input
     pub current_bitflips: Vec<usize>,
     /// Flipping the bit at [index] causes 1 bit flip at the output
@@ -154,15 +154,14 @@ impl SecretInputParts {
     fn matches_secret_part_of_input<I>(&self, input: &I) -> bool 
         where I: PubSecInput 
     {
-        let mut matched = true;
         macro_rules! check_equal {
             ($field: expr, $flag: expr) => {
                 {
                     let buf2 = input.get_part_bytes($flag);
                     if $field.is_some() != buf2.is_some() {
                         false // one is an empty optional, and the other not
-                    } else if self.explicit_secret_input.is_some() {
-                        self.explicit_secret_input.as_ref().unwrap() == buf2.unwrap()
+                    } else if $field.is_some() {
+                        $field.as_ref().unwrap() == buf2.unwrap()
                     } else {
                         true // both are None
                     }
@@ -351,47 +350,18 @@ where
                 let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
 
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
-                    // println!("Made the following observations (secret_in: public_out) for public_in: {:?}:", 
-                    //     std::string::String::from_utf8_lossy(input.get_public_part_bytes()));
-
-                    // if hash_val.public_outputs_full.len() == 0 {
-                    //     println!("For public in: {:?} and secret_in: {:?} found two different outputs: (hash only) {:?} and {:?}",
-                    //         std::string::String::from_utf8_lossy(input.get_public_part_bytes()),
-                    //         std::string::String::from_utf8_lossy(input.get_secret_part_bytes()),
-                    //         hash_val.public_output_hashes[0],
-                    //         output_data.to_string());
-
-                    // } else if hash_val.secret_inputs_full.len() < hash_val.public_outputs_full.len() {
-                    //     println!("(hash only) {}: {:?}",
-                    //         hash_val.secret_input_hashes[0],
-                    //         std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[0].stdout));
-                    //     for i in 0..hash_val.secret_inputs_full.len() {
-                    //         println!("{:?}: {:?}",
-                    //             std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[i]),
-                    //             std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[i + 1].stdout));
-                    //     }
-
-                    // } else {
-                    //     for i in 0..hash_val.secret_inputs_full.len() {
-                    //         println!("{:?}: {:?}",
-                    //             std::string::String::from_utf8_lossy(&hash_val.secret_inputs_full[i]),
-                    //             std::string::String::from_utf8_lossy(&hash_val.public_outputs_full[i].stdout));
-                    //     }
-
-                    // }
-
-                    // println!("Note: prev pub_in: {:?},\nsec_in: {:?},\npub_stdout: {:?},\npub_stderr: {:?}",
-                    //     std::string::String::from_utf8_lossy(&self.prev_pub_in),
-                    //     std::string::String::from_utf8_lossy(&self.prev_sec_in),
-                    //     std::string::String::from_utf8_lossy(&self.prev_output.stdout),
-                    //     std::string::String::from_utf8_lossy(&self.prev_output.stderr),
-                    // );
-
                     return (true, Some(output_data));
                 }
 
                 for secret_in in &hash_val.secret_inputs_full {
                     if secret_in.matches_secret_part_of_input(input) {
+                        println!("Compared secrets and found them equal: secret_in: \
+                                    {{ exp: {:?}, stack: {:?}, heap: {:?} }}, \n\
+                                    cur_input: {{ exp: {:?}, stack: {:?}, heap: {:?} }}",
+                                secret_in.explicit_secret_input, secret_in.stack_mem_input, secret_in.heap_mem_input,
+                                input.get_part_bytes(InputContentsFlags::SecretExplicitInput), 
+                                input.get_part_bytes(InputContentsFlags::SecretStackMemory),
+                                input.get_part_bytes(InputContentsFlags::SecretHeapMemory));
                         panic!("Hash not found in hashes, but full input was?");
                     }
                 }
@@ -880,7 +850,7 @@ where
 
         deets.leak_quantify_metadata = Some(LeakQuantifyMetadata {
             bitflip_flips_output_bits: BitflipMap::new(),
-            original_output: Some(output_data.to_owned()),
+            original_output: output_data.to_owned(),
             current_bitflips: vec![],
             completed_deterministic_bitflips: false,
             bitflips_do_not_map: false,
