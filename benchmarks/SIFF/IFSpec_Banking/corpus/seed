@@ -1,4 +1,4 @@
 {
-  "PUBLIC": "",
-  "SECRET": "dGVzdA=="
+  "EXPLICIT_PUBLIC": "AAA",
+  "EXPLICIT_SECRET": "dGVzdA=="
 }
