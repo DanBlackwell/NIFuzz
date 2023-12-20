@@ -109,3 +109,16 @@ int main(void) {
     return 0;
 }
 ```
+
+Corpus seeds must be provided in Base64 encoded strings in a JSON dictionary with the following (optional) keys:
+
+```
+{
+  "EXPLICIT_PUBLIC": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "EXPLICIT_SECRET": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "STACK_MEM_SECRET": "MDAwMA==",
+  "HEAP_MEM_SECRET": "MDAwMA=="
+}
+```
+
+Note that as JSON, there should be no trailing comma. Any keys that are missing in the seed are not populated by the fuzzer; this allows for more efficient fuzzing of programs that do not have `EXPLICIT_SECRET` inputs for example (by omitting a key-value pair for `EXPLICIT_SECRET`).
