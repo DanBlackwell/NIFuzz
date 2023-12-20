@@ -147,7 +147,7 @@ where
         let next_target = match input_ref.get_current_mutate_target() {
             MutateTarget::All => MutateTarget::PublicExplicitInput,
             MutateTarget::PublicExplicitInput => MutateTarget::All,
-            _ => panic!("PubSecInput does not implement {:?}", input_ref.get_current_mutate_target()),
+            _ => MutateTarget::All, // this case only occurs if a new testcase was stored during Secret mutation
         };
         input_ref.set_current_mutate_target(next_target);
 
@@ -555,8 +555,8 @@ where
                 }
                 (longest_stdout, longest_stderr)
             };
-            let mut consolidated_stdout = vec![None; longest_stdout];
-            let mut consolidated_stderr = vec![None; longest_stderr];
+            let mut consolidated_stdout = vec![None; 8 * longest_stdout];
+            let mut consolidated_stderr = vec![None; 8 * longest_stderr];
             for (index, output_data) in output_bitflips.into_iter().enumerate() {
                 if index == 0 {
                     for (index, bit) in BitVec::<_, Msb0>::from_vec(output_data.stdout).iter().enumerate() {

@@ -474,7 +474,7 @@ where
                     if let Some(sec_full_pos) = hash_val.secret_inputs_full.iter()
                         .position(|buf| buf.get_hash() == sec_in_hash) 
                     {
-                        if hash_val.secret_inputs_full[sec_full_pos].matches_secret_part_of_input(input) {
+                        if !hash_val.secret_inputs_full[sec_full_pos].matches_secret_part_of_input(input) {
                             panic!("somehow hashes matched????");
                         }
                     } else {
