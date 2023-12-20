@@ -272,9 +272,18 @@ where
                 },
             };
    
+            let should_mutate;
+            if input.get_current_mutate_target() == MutateTarget::SecretExplicitInput {
+                should_mutate = input.get_part_bytes(InputContentsFlags::SecretExplicitInput).is_some();
+                if !should_mutate {
+                    input.set_current_mutate_target(MutateTarget::PublicExplicitInput);
+                }
+            } else {
+                should_mutate = true;
+            }
+
             // if we're mutating public, or the program has an explicit secret input (not all do)
-            if input.get_current_mutate_target() != MutateTarget::SecretExplicitInput ||
-                input.get_part_bytes(InputContentsFlags::SecretExplicitInput).is_some() {
+            if should_mutate {
                 start_timer!(state);
                 let mutated = self.mutator_mut().mutate(state, &mut input, i as i32)?;
                 mark_feature_time!(state, PerfFeature::Mutate);

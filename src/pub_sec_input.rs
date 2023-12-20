@@ -261,15 +261,16 @@ impl PubSecInput for PubSecBytesInput {
 
     fn get_secret_input_hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
-        if self.explicit_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretExplicitInput).unwrap().hash(&mut hasher);
+        macro_rules! add_hash {
+            ($flag: expr) => {
+                if let Some(buf) = self.get_part_bytes($flag) {
+                    buf.to_vec().hash(&mut hasher);
+                }
+            };
         }
-        if self.stack_mem_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretStackMemory).unwrap().hash(&mut hasher);
-        }
-        if self.heap_mem_secret_len.is_some() {
-            self.get_part_bytes(InputContentsFlags::SecretHeapMemory).unwrap().hash(&mut hasher);
-        }
+        add_hash!(InputContentsFlags::SecretExplicitInput);
+        add_hash!(InputContentsFlags::SecretStackMemory);
+        add_hash!(InputContentsFlags::SecretHeapMemory);
         hasher.finish()
     }
 
@@ -400,6 +401,7 @@ impl Input for PubSecBytesInput {
     where
         P: AsRef<Path>,
     {
+        let path_str = path.as_ref().display().to_string();
         // panic!("Haven't implemented this yet");
         let mut file = File::open(path).unwrap();
         let mut bytes: Vec<u8> = vec![];
@@ -410,32 +412,41 @@ impl Input for PubSecBytesInput {
 
         match obj {
             Object(map) => {
-                let parse_field = |map: &Map<String, Value>, key| {
-                    if let Some(val) = map.get(key) { 
-                        match val {
-                            Value::String(string) => Some(string.to_owned()),
-                            _ => panic!("{} was not a string (was {:?})", key, val),
-                        }
-                    } else {
-                        None
-                    }
-                };
-                macro_rules! parse {
-                    ($field: literal) => {
-                        if let Some(buf) = parse_field(&map, $field) {
+                let mut decoded = [
+                    ("EXPLICIT_PUBLIC", None),
+                    ("EXPLICIT_SECRET", None),
+                    ("STACK_MEM_SECRET", None),
+                    ("HEAP_MEM_SECRET", None),
+                ];
+                for (key, value) in map {
+                    let mut matched = false;
+                    for (field_name, cur_val) in decoded.iter_mut() {
+                        if key == field_name.to_string() {
+                            let buf = match value {
+                                Value::String(string) => string.to_owned(),
+                                _ => panic!("{} was not a string (was {:?}) at path {}", key, value, path_str),
+                            };
                             let raw = general_purpose::STANDARD.decode(buf).unwrap();
-                            Some(raw)
-                        } else {
-                            None
+                            *cur_val = Some(raw);
+                            matched = true;
+                            break;
                         }
-                    };
+                    }
+                    if !matched {
+                            panic!("Found unexpected key \"{key}\" (expected {:?}) in JSON at path {}",
+                                decoded.iter().map(|(k,_)| k).copied().collect::<Vec<&str>>(), path_str);
+                    }
+                } 
+
+                if !decoded.iter().fold(false, |filled, (_,v)| filled || v.is_some()) {
+                    panic!("Failed to find any useful keys in json {str}, in file at path: {}", path_str);
                 }
 
                 Ok(PubSecBytesInput::from_bufs(
-                    parse!("EXPLICIT_PUBLIC").as_deref(),
-                    parse!("EXPLICIT_SECRET").as_deref(),
-                    parse!("STACK_MEM_SECRET").as_deref(),
-                    parse!("HEAP_MEM_SECRET").as_deref()
+                    decoded[0].1.as_deref(),
+                    decoded[1].1.as_deref(),
+                    decoded[2].1.as_deref(),
+                    decoded[3].1.as_deref(),
                 ))
             },
             _ => panic!("is not a JSON object!")
