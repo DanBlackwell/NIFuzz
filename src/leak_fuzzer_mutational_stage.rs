@@ -361,7 +361,7 @@ where
             return Ok(());
         }
 
-        let bitflip_map = if longest_part_bits > 1000 {
+        let bitflip_map = if longest_part_bits > 1000 / 8 {
             self.quick_find_all_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts)
         } else {
             self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &input, &effectual_parts)
@@ -426,7 +426,7 @@ where
         // Collect new `original_output` for this extended input
         self.collect_original_output_data(fuzzer, executor, state, manager, &extended_input)?;
 
-        let extended_bitflip_map = if longest_part_bits > 1000 {
+        let extended_bitflip_map = if longest_part_bits > 1000 / 8 {
             self.quick_find_all_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)
         } else {
             self.leak_test_all_individual_bitflips(fuzzer, executor, state, manager, &extended_input, &extensions)

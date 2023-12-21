@@ -76,7 +76,8 @@ impl BitflipMap {
 
     pub fn mapped_inputs_counts(&self) -> HashMap<InputContentsFlags, usize> {
         let mut out = HashMap::new();
-        for in_loc in self.map.keys() {
+        for (in_loc, out_locs) in self.map.iter() {
+            if out_locs.is_empty() { continue; }
             if let Some(count) = out.get_mut(&in_loc.part) {
                 *count += 1;
             } else {

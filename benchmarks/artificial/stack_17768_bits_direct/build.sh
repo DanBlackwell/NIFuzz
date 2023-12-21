@@ -14,13 +14,12 @@ if [[ "$1" == "fuzz" ]]; then
   EXTRA_FILES="m.o"
   
   CC=$PWD/../../../target/release/libafl_cc
-  # $CC -O0 -Wall $CFLAGS rds_kernel_CVE-2019-16714_fuzz.c m.o -I../../ -o fuzz
   $CC -O0 -Wall $CFLAGS fuzz_harness.c m.o -I../../ -o fuzz
   
   rm -f *.o
 
 elif [[ "$1" == "CBMC" || "$1" == "cbmc" ]]; then
-  goto-cc -D CHECK_LEAKAGE=CHECK_2_BITS_LEAKAGE rds_kernel_CVE-2019-16714_cbmc.c -I$CBMC_DEFS_DIR -o model_check
+  goto-cc -D CHECK_LEAKAGE=CHECK_2_BITS_LEAKAGE cbmc_harness.c -I$CBMC_DEFS_DIR -o model_check
 
 else
   echo "Usage: $0 [CBMC|fuzz]"
