@@ -60,12 +60,12 @@ pub fn main() {
                 uint8_t _input_parts_indicator = __data[__pos++];\
                 CHECK_AND_PARSE_LEN(HAS_EXPLICIT_PUB_IN, _explicit_public_len);\
                 CHECK_AND_PARSE_LEN(HAS_EXPLICIT_SEC_IN, _explicit_secret_len);\
-                CHECK_AND_PARSE_LEN(HAS_STACK_MEM_IN, _heap_mem_len);\
-                CHECK_AND_PARSE_LEN(HAS_HEAP_MEM_IN, _stack_mem_len);\
+                CHECK_AND_PARSE_LEN(HAS_STACK_MEM_IN, _stack_mem_len);\
+                CHECK_AND_PARSE_LEN(HAS_HEAP_MEM_IN, _heap_mem_len);\
                 CHECK_AND_PARSE_VAL(HAS_EXPLICIT_PUB_IN, _explicit_public_in, _explicit_public_len);\
                 CHECK_AND_PARSE_VAL(HAS_EXPLICIT_SEC_IN, _explicit_secret_in, _explicit_secret_len);\
-                CHECK_AND_PARSE_VAL(HAS_STACK_MEM_IN, _heap_mem_in, _heap_mem_len);\
-                CHECK_AND_PARSE_VAL(HAS_HEAP_MEM_IN, _stack_mem_in, _stack_mem_len);");
+                CHECK_AND_PARSE_VAL(HAS_STACK_MEM_IN, _stack_mem_in, _stack_mem_len);\
+                CHECK_AND_PARSE_VAL(HAS_HEAP_MEM_IN, _heap_mem_in, _heap_mem_len);");
 
             let extra_defines = [
                 "-DCHECK_AND_PARSE_LEN(flag, var)=if (_input_parts_indicator & flag) { var = *(typeof(var) *)(__data + __pos); __pos += sizeof(var); }",

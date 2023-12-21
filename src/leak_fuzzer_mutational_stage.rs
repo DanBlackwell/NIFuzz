@@ -588,7 +588,7 @@ where
                 }
             }
 
-            println!("After all that, we have a mapping from input bit to stdout: {:?}", consolidated_stdout);
+            // println!("After all that, we have a mapping from input bit to stdout: {:?}", consolidated_stdout);
             let mut input_to_output_mapping = HashMap::<InputBitLocation, Vec<OutputBitLocation>>::new();
             for (index, input_bit_num) in consolidated_stdout.iter().enumerate() {
                 if let Some(input_bit_num) = input_bit_num {

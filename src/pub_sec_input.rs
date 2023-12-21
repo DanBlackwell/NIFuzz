@@ -162,31 +162,6 @@ impl PubSecInput for PubSecBytesInput {
         }
     }
 
-    // fn get_public_part_bytes(&self) -> &[u8] {
-    //     assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.explicit_public_len as u32);
-    //     let len_indicator = std::mem::size_of::<u32>();
-    //     let end = len_indicator + self.explicit_public_len;
-    //     &self.raw_bytes[len_indicator..end]
-    // }
-
-    // fn get_secret_part_bytes(&self) -> &[u8] {
-    //     assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.explicit_public_len as u32);
-    //     let len_indicator = std::mem::size_of::<u32>();
-    //     let start = len_indicator + self.explicit_public_len;
-    //     &self.raw_bytes[start..]
-    // }
-
-    // fn set_secret_part_bytes(&mut self, new_buf: &[u8]) {
-    //     assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.explicit_public_len as u32);
-    //     assert!(self.raw_bytes.len() == 4 + self.explicit_public_len + self.explicit_secret_len);
-    //     let len_indicator = std::mem::size_of::<u32>();
-    //     let start = len_indicator + self.explicit_public_len;
-    //     self.raw_bytes.drain(start..);
-    //     self.explicit_secret_len = new_buf.len();
-    //     assert!(u32::from_ne_bytes(self.raw_bytes[0..4].try_into().unwrap()) == self.explicit_public_len as u32);
-    //     assert!(self.raw_bytes.len() == 4 + self.explicit_public_len + self.explicit_secret_len);
-    // }
-
     fn get_part_bytes(&self, part: InputContentsFlags) -> Option<&[u8]> {
         if let Some(len) = match part {
             InputContentsFlags::PublicExplicitInput => self.explicit_public_len,
