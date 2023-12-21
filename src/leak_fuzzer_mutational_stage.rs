@@ -550,7 +550,7 @@ where
                             println!("Unexpectedly found a stderr that was longer ({}) than the previous ({})",
                                 output.stdout.len(), longest_stderr);
                         }
-                        longest_stderr = output.stdout.len();
+                        longest_stderr = output.stderr.len();
                     }
                 }
                 (longest_stdout, longest_stderr)
