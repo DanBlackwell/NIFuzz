@@ -352,9 +352,7 @@ where
 
             if !inconsistent {
               match state.targeting_violations() {
-                  ViolationsTargetingApproach::SingleBitFlips | ViolationsTargetingApproach::RandomBitFlips => {
-                      self.hypertest_feedback.check_for_bitflip_output(&input, &output_data);
-                  }
+                  ViolationsTargetingApproach::BitFlips => {},
                   ViolationsTargetingApproach::UniformSampling => 
                       self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data),
                   _ => panic!("unhandled case!")
@@ -375,7 +373,7 @@ where
                 mark_feature_time!(state, PerfFeature::TargetExecution);
                 // let cur_exit = self.execute_input(state, executor, manager, &input)?;
 
-                if cur_exit != exit_kind {
+                if cur_exit != ExitKind::Timeout && exit_kind != ExitKind::Timeout && cur_exit != exit_kind {
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
                     // inconsistent = true;
                     // break;

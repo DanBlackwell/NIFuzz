@@ -1,7 +1,6 @@
 use hashbrown::{HashMap, HashSet};
-use libc::accept;
 use core::marker::PhantomData;
-use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher, process::Output};
+use std::{hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 use libafl_bolts::{ErrorBacktrace, Error};
 use libafl::prelude::Input;
 use crate::{output_feedback::{OutputData, OutputSource}, leak_fuzzer_state::ViolationsTargetingApproach, pub_sec_input::InputContentsFlags};
@@ -30,8 +29,6 @@ impl<I> InfoLeakChecker<I> {}
 pub struct LeakQuantifyMetadata {
     /// Copy of the output when no bits have been flipped
     pub original_output: OutputData,
-    /// A list of bits that have been flipped for the current input
-    pub current_bitflips: Vec<usize>,
     /// Flipping the bit at [index] causes 1 bit flip at the output
     pub bitflip_flips_output_bits: BitflipMap,
     /// Have we completed the deterministic bit flipping stage
@@ -92,6 +89,10 @@ impl BitflipMap {
         self.map.iter()
     }
 
+    pub fn full_map(&self) -> &HashMap<InputBitLocation, HashSet<OutputBitLocation>> {
+        &self.map
+    }
+
     /// Insert the mapping from input_bit to output_bits, returning a Vec containing the list of
     /// new output_bits that were added (after filtering any duplicates)
     pub fn insert_entry(
@@ -119,6 +120,52 @@ impl BitflipMap {
         self.map.insert(input_bit, HashSet::from_iter(filtered.iter().copied()));
 
         filtered
+    }
+
+    /// Feed a set of input and output bits and update the map accordingly 
+    /// return a bool indicating whether the check passed (i.e. no map updates occurred)
+    pub fn check_multibit_flip_result(
+        &mut self,
+        input_bits_flipped: &[InputBitLocation],
+        output_bits_flipped: &HashSet<OutputBitLocation>
+    ) -> bool {
+        let expected = input_bits_flipped.iter()
+            .fold(HashSet::new(), |mut set, b| { 
+                self.map.get(b).unwrap().iter().for_each(|o| { set.insert(o.to_owned()); }); 
+                set
+            }
+        );
+
+        let mut update_occurred = false;
+
+        let unexpected = output_bits_flipped.difference(&expected);
+        for out_bit in unexpected {
+            println!("Found unexpected bitflip at {:?}", out_bit);
+            // Try add this unexpected bit to seen flips
+            if self.seen_output_flips.insert(*out_bit) {
+                // If it was already seen, then filter this out from the expected flips
+                for (_in_bit, out_flips) in self.map.iter_mut() {
+                    let start_len = out_flips.len();
+                    out_flips.retain(|e| *e != *out_bit );
+                    if out_flips.len() < start_len { update_occurred = true; }
+                }
+            }
+        }
+
+        let failed = expected.difference(&output_bits_flipped);
+        for out_bit in failed {
+            for in_bit in input_bits_flipped {
+                let out_flips = self.map.get_mut(in_bit).unwrap();
+                let start_len = out_flips.len();
+                out_flips.retain(|e| *e != *out_bit );
+                if out_flips.len() < start_len { update_occurred = true; }
+            }
+            if !update_occurred {
+                panic!("We would expect to have filtred this bit out of at least one, as it was in the expected set");
+            }
+        }
+
+        !update_occurred
     }
 
     pub fn get_output_flips_for_input_bit(&self, input_bit_location: InputBitLocation) -> Option<&HashSet<OutputBitLocation>> {
@@ -291,10 +338,6 @@ where
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
 
-    /// Check whether flipping this bit in the input causes a corresponding bitflip in the output
-    /// and update testcase metadata to reflect this
-    fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData);
-
     /// Decide what the next leak searching approach is for a given input
     fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach;
 
@@ -431,12 +474,6 @@ where
     }
 
     fn exposes_fault(&mut self, input: &I, output_data: &OutputData) -> Option<(FailingHypertest<'_, I>, bool)> {
-        let hash = |val: &[u8]| {
-            let mut hasher = DefaultHasher::new();
-            val.hash(&mut hasher);
-            hasher.finish()
-        };
-
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
 
@@ -590,118 +627,6 @@ where
         panic!("oops");
     }
 
-    fn check_for_bitflip_output(&mut self, input: &I, output_data: &OutputData) {
-        // let metadata = self.get_leak_quantify_metadata_mut(input).unwrap();
-        // match metadata.current_bitflips.len() {
-        //     0 => {
-        //         if metadata.original_output.is_some() { panic!("Expected we're setting the original output again!"); }
-        //         metadata.original_output = Some(output_data.to_owned());
-        //     },
-        //     1 => {
-        //         let mut flipped_bits_map = HashMap::new();
-
-        //         // We should probably be comparing stdout and stderr separately... not concat'ed
-        //         // let mut orig = metadata.original_output.as_ref().unwrap().stdout.clone();
-        //         // orig.append(&mut metadata.original_output.as_ref().unwrap().stderr.clone());
-
-        //         // let mut new = output_data.stdout.clone();
-        //         // new.append(&mut output_data.stderr.clone());
-
-        //         // if new.len() != orig.len() { println!("lengths differ: orig len was {}, new is {}", orig.len(), new.len()); }
-        //         let outputs = [
-        //             (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
-        //             (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
-        //         ];
-
-        //         for (source, orig, new) in outputs {
-        //             let mut bitflips = vec![];
-        //             // For each byte in the stdout output
-        //             for byte in 0..std::cmp::min(new.len(), orig.len()) {
-        //                 // Check if any bits differ
-        //                 let diff = new[byte] ^ orig[byte];
-        //                 for bit in 0..8 {
-        //                     if diff & (0x80 >> bit) != 0 {
-        //                         bitflips.push(8 * byte + bit);
-        //                     }
-        //                 }
-        //             }
-
-        //             flipped_bits_map.insert(source, bitflips);
-        //         }
-
-        //         if flipped_bits_map.values().fold(0usize, |sum, e| sum + e.len()) > 0 {
-        //             println!("bit {} of input flip maps to {} bits of stdout and {} bits of stderr", 
-        //                 metadata.bitflip_flips_output_bits.len(),
-        //                 flipped_bits_map.get(&OutputSource::Stdout).unwrap().len(),
-        //                 flipped_bits_map.get(&OutputSource::Stderr).unwrap().len(),
-        //             );
-        //             // if orig.len() < 120 && new.len() < 120 {
-        //             //   let mut hex = orig.iter()
-        //             //       .map(|b| format!("{:02x}", b).to_string())
-        //             //       .collect::<Vec<String>>()
-        //             //       .join(" ");
-        //             //   println!("  orig: {:?}", hex);
-        //             //   hex = new.iter()
-        //             //       .map(|b| format!("{:02x}", b).to_string())
-        //             //       .collect::<Vec<String>>()
-        //             //       .join(" ");
-        //             //   println!("  new:  {:?}", hex);
-        //             // }
-        //         }
-        //         // metadata.bitflip_flips_output_bits.push(flipped_bits_map);
-        //     },
-        //     _ => {
-
-        //         let outputs = [
-        //             (OutputSource::Stdout, &metadata.original_output.as_ref().unwrap().stdout, &output_data.stdout),
-        //             (OutputSource::Stderr, &metadata.original_output.as_ref().unwrap().stderr, &output_data.stderr),
-        //         ];
-        //         for (source, orig, new) in outputs {
-        //             let ignored_output_bitflips = metadata.ignored_output_bitflips.get(&source).unwrap();
-        //             // collect up a list of all the output bits we'd expect to be flipped
-        //             let mut expected_bitflips = metadata.current_bitflips
-        //                 .iter()
-        //                 .flat_map(|&idx| metadata.bitflip_flips_output_bits[idx].get(&source).unwrap().to_owned())
-        //                 .collect::<HashSet<usize>>();
-
-        //             let mut flipped_bits = HashSet::new();
-        //             for byte in 0..std::cmp::min(new.len(), orig.len()) {
-        //                 let diff = new[byte] ^ orig[byte];
-        //                 if diff != 0 {
-        //                     // get a list of the bits that were flipped in this new output
-        //                     let mut flipped = (0usize..8usize).into_iter()
-        //                         .filter(|&bit| diff & (0x80 >> bit) != 0)
-        //                         .map(|bit| 8 * byte + bit)
-        //                         .for_each(|bit| { flipped_bits.insert(bit); });
-        //                 }
-        //             }
-
-        //             let filtered_flipped = flipped_bits.difference(&ignored_output_bitflips).copied().collect::<HashSet<usize>>();
-        //             let failed_flips = expected_bitflips.difference(&filtered_flipped);
-        //             if failed_flips.clone().count() > 0 {
-        //                 let failed_flips = failed_flips.clone().copied().collect::<HashSet<usize>>();
-        //                 println!("{} expected bitflips failed for this input bitflip combo: {:?}", 
-        //                     failed_flips.len(), failed_flips);
-
-        //                 // Remove all of these uncertain bitflips
-        //                 metadata.bitflip_flips_output_bits.iter_mut().for_each(|map| {
-        //                     map.get_mut(&source).unwrap().retain(|idx| !failed_flips.contains(idx));
-        //                 });
-        //             }
-
-        //             let excess_flips = filtered_flipped.difference(&expected_bitflips);
-        //             if excess_flips.clone().count() > 0 {
-        //                 println!("{} excess bitflips for this input bitflip combo: {:?}", 
-        //                     excess_flips.clone().count(), excess_flips.clone().copied().collect::<Vec<usize>>());
-
-        //                 let ignored_flips = metadata.ignored_output_bitflips.get_mut(&source).unwrap();
-        //                 excess_flips.for_each(|&flip| { ignored_flips.insert(flip); });
-        //             }
-        //         }
-        //     }
-        // }
-    }
-
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
@@ -726,13 +651,16 @@ where
         let mut most_output_distinctions = 0;
         let mut most_bitflips_locations = None;
         let mut most_bitflips_leaked = 0;
-        const MIN_HITS: usize = 1_000;
+        const MIN_HITS: usize = 4;
 
-        let filtered = self.violation_pub_ins.iter()
+        // let filtered = self.violation_pub_ins.iter()
+        //     .map(|x| self.dict.get(x).unwrap())
+        //     .filter(|x| x.hits >= MIN_HITS);
+        // let (_sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 4 { 1 } else { 0 }));
+        let pub_ins_count = self.violation_pub_ins.iter()
             .map(|x| self.dict.get(x).unwrap())
-            .filter(|x| x.hits >= MIN_HITS);
-        let (_sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 10 { 1 } else { 0 }));
-        let pub_in_prob = 1.0f64 / (well_sampled_pubs as f64);
+            .fold(0usize, |acc, x| acc + if x.hits >= MIN_HITS { 1 } else { 0 });
+        let pub_in_prob = 1.0f64 / (pub_ins_count as f64);
 
         let valid_count = self.violation_pub_ins.iter().fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});
 
@@ -767,10 +695,8 @@ where
             }
 
             let mut entropy = 0_f64;
-            // print!("Probability of outputs: [");
             for (_pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
                 let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
-                // print!("{}: {} (raw {} / {}), ", pub_out, prob, sec_in.len(), sample_count);
                 entropy += prob * prob.log2();
             }
 
@@ -780,23 +706,14 @@ where
 
             for &&_pub_out in diff {
                 let prob = pub_in_prob * (1f64 / sample_count as f64);
-                // print!("[non_uniform] {}: {} (raw {} / {}), ", pub_out, prob, 1, sample_count);
                 entropy += prob * prob.log2();
             }
 
-            // println!("]");
             output_violation_entropy_sum += entropy; 
-
-            // if hash_val.secret_inputs_full.len() > 2 {
-            //     println!("{{ pub: {:?}, sec1: {:?}, sec2: {:?}, sec3: {:?} }} => {{ out1: {}, out2: {}, out3: {} }}",
-            //         hash_val.public_input_full, hash_val.secret_inputs_full[0], hash_val.secret_inputs_full[1], hash_val.secret_inputs_full[2],
-            //         hash_val.public_outputs_full[0].to_string(), hash_val.public_outputs_full[1].to_string(), hash_val.public_outputs_full[2].to_string());
-            // }
-
         }
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
-        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled_pubs}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
+        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
 
         print!("Most bits leaked directly from input to output: {most_bitflips_leaked}.");
         if let Some(bitflip_locations) = most_bitflips_locations {
@@ -819,9 +736,7 @@ where
     fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach {
         let metadata = self.get_leak_quantify_metadata(input).unwrap();
         if metadata.bitflip_flips_output_bits.len() == 0 {
-            ViolationsTargetingApproach::SingleBitFlips
-        } else if !metadata.bitflips_do_not_map && !metadata.completed_deterministic_bitflips {
-            ViolationsTargetingApproach::RandomBitFlips
+            ViolationsTargetingApproach::BitFlips
         } else {
             ViolationsTargetingApproach::UniformSampling
         }
@@ -877,7 +792,6 @@ where
         deets.leak_quantify_metadata = Some(LeakQuantifyMetadata {
             bitflip_flips_output_bits: BitflipMap::new(),
             original_output: output_data.to_owned(),
-            current_bitflips: vec![],
             completed_deterministic_bitflips: false,
             bitflips_do_not_map: false,
         });

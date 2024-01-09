@@ -6,17 +6,15 @@ use core::{
     hash::{BuildHasher, Hasher},
     ops::Range,
 };
-use std::{collections::hash_map::DefaultHasher, hash::Hash, backtrace::Backtrace};
+use std::{collections::hash_map::DefaultHasher, hash::Hash};
 #[cfg(feature = "std")]
 use std::{fs::File, io::Read, path::Path};
 
 use ahash::RandomState;
 use serde::{Deserialize, Serialize};
 use serde_json::{
-    Map,
     Value,
     Value::Object,
-    json
 };
 use hashbrown::HashMap;
 
@@ -52,7 +50,7 @@ pub fn swap_bytes_in_ranges(buf: &mut Vec<u8>, range_1: Range<usize>, range_2: R
             panic!("overlapping ranges {:?}, {:?}", range_1, range_2);
         }
 
-    let (mut first, mut second) = if range_1.start < range_2.start {
+    let (first, second) = if range_1.start < range_2.start {
         (range_1, range_2)
     } else {
         (range_2, range_1)
@@ -278,10 +276,10 @@ impl PubSecInput for PubSecBytesInput {
                 }
 
                 let header_len = 1 +
-                    if let Some(len) = self.explicit_public_len { 4 } else { 0 } +
-                    if let Some(len) = self.explicit_secret_len { 4 } else { 0 } +
-                    if let Some(len) = self.stack_mem_secret_len { 4 } else { 0 } +
-                    if let Some(len) = self.heap_mem_secret_len { 4 } else { 0 };
+                    if self.explicit_public_len.is_some() { 4 } else { 0 } +
+                    if self.explicit_secret_len.is_some() { 4 } else { 0 } +
+                    if self.stack_mem_secret_len.is_some() { 4 } else { 0 } +
+                    if self.heap_mem_secret_len.is_some() { 4 } else { 0 };
 
                 self.raw_bytes[header_len..].copy_from_slice(mutated_input); 
             }

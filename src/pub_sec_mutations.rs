@@ -593,7 +593,7 @@ where
 
         let range = rand_range(state, size, min(16, max_size - size));
         let mut to_copy = input.get_current_buf_seg()[range.start..range.end].to_owned();
-        let mut buf = input.get_current_buf_seg().to_owned();
+        let buf = input.get_current_buf_seg().to_owned();
 
         let mut new = buf[0..range.start].to_vec();
         new.append(&mut to_copy);

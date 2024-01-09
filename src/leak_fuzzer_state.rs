@@ -87,8 +87,7 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
 pub enum ViolationsTargetingApproach {
     None,
     ToBeDecided,
-    SingleBitFlips,
-    RandomBitFlips,
+    BitFlips,
     UniformSampling,
 }
 
