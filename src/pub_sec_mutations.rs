@@ -46,11 +46,13 @@ where
         input: &mut I,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        let sample = (state.rand_mut().next() as u32).to_ne_bytes();
-
         for part in [InputContentsFlags::SecretExplicitInput, InputContentsFlags::SecretStackMemory, InputContentsFlags::SecretHeapMemory] {
-            if let Some(_buf) = input.get_part_bytes(part) {
-                input.set_part_bytes(part, &sample);
+            if let Some(buf) = input.get_part_bytes(part) {
+                let mut uniform_buf = vec![];
+                while uniform_buf.len() < buf.len() {
+                    uniform_buf.append(&mut state.rand_mut().next().to_ne_bytes().to_vec());
+                }
+                input.set_part_bytes(part, &uniform_buf[0..buf.len()]);
             }
         }
 

@@ -1,7 +1,7 @@
 FROM rust:1.71.1-bullseye
 SHELL ["/bin/bash", "-c"]
 
-RUN apt update && apt install -y make clang-13
+RUN apt update && apt install -y make clang-13 libdbus-glib-1-dev
 RUN alias clang=clang-13; alias clang++=clang++-13
 
 # ADD . /home/

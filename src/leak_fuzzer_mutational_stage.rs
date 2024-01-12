@@ -542,6 +542,29 @@ where
         Ok(())
     }
 
+    pub fn retrieve_bitflip_differences(out1: &OutputData, out2: &OutputData) -> Vec<OutputBitLocation> {
+            let outputs = [
+                (OutputSource::Stdout, &out1.stdout, &out2.stdout),
+                (OutputSource::Stderr, &out2.stdout, &out2.stderr),
+            ];
+
+            let mut flipped_bits = vec![];
+            for (source, orig, new) in outputs {
+                // For each byte in the stdout output
+                for byte in 0..std::cmp::min(new.len(), orig.len()) {
+                    // Check if any bits differ
+                    let diff = new[byte] ^ orig[byte];
+                    for bit in 0..8 {
+                        if diff & (0x80 >> bit) != 0 {
+                            flipped_bits.push(OutputBitLocation { source, bit_num: 8 * byte + bit });
+                        }
+                    }
+                }
+            }
+
+            flipped_bits
+    }
+
     fn quick_find_all_bitflips(
         &mut self,
         fuzzer: &mut Z,
@@ -698,29 +721,6 @@ where
         Ok(bitflip_map)
     }
 
-    pub fn retrieve_bitflip_differences(out1: &OutputData, out2: &OutputData) -> Vec<OutputBitLocation> {
-            let outputs = [
-                (OutputSource::Stdout, &out1.stdout, &out2.stdout),
-                (OutputSource::Stderr, &out2.stdout, &out2.stderr),
-            ];
-
-            let mut flipped_bits = vec![];
-            for (source, orig, new) in outputs {
-                // For each byte in the stdout output
-                for byte in 0..std::cmp::min(new.len(), orig.len()) {
-                    // Check if any bits differ
-                    let diff = new[byte] ^ orig[byte];
-                    for bit in 0..8 {
-                        if diff & (0x80 >> bit) != 0 {
-                            flipped_bits.push(OutputBitLocation { source, bit_num: 8 * byte + bit });
-                        }
-                    }
-                }
-            }
-
-            flipped_bits
-    }
-
     pub fn leak_test_all_individual_bitflips(
         &mut self,
         fuzzer: &mut Z,
@@ -775,7 +775,7 @@ where
         input: &<<Z as UsesState>::State as UsesInput>::Input,
     ) -> Result<(), Error> {
         // Try random combos of bitflips to check that they do map as expected
-        println!("Ok, should try random combos now!");
+        // println!("Ok, should try random combos now!");
 
         let mut combos_since_failure = 0;
         loop {
@@ -831,9 +831,6 @@ where
             println!("Flipping {} bits from possible {} ({:?})", 
                 bits_to_flip.len(), output_mapped_bits.len(), 
                 if bits_to_flip.len() > 20 { "omitted".to_string() } else { format!("{:?}", bits_to_flip) });
-
-            // no point checking single bit flips again...
-            if bits_to_flip.len() <= 1 { break; }
 
             let mut new_secrets = HashMap::new();
             for input_loc in &bits_to_flip {

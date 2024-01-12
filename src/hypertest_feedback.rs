@@ -331,6 +331,9 @@ where
     /// incorrectly (likely due to some oddity in the way the forkserver collects output) 
     fn exposes_fault(&mut self, input: &I, output_data: &OutputData) -> Option<(FailingHypertest<'_, I>, bool)>;
 
+    /// Upon rerunning we found an incorrectly mapped secret_input, fix the map!
+    fn fix_misstored_output(&mut self, input: &I, output_data: &OutputData);
+
     /// We already know that this input public part witnesses a violation, here is a uniform sampled secret
     /// input that we can use to calculate the probability of witnessing a particular output
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData);
@@ -627,6 +630,52 @@ where
         panic!("oops");
     }
 
+    fn fix_misstored_output(&mut self, input: &I, output_data: &OutputData) {
+        let pub_in_hash = input.get_public_input_hash();
+        let sec_in_hash = input.get_secret_input_hash();
+
+        // let mut hasher = DefaultHasher::new();
+        // output_data.stdout.hash(&mut hasher);
+        // output_data.stderr.hash(&mut hasher);
+        // let pub_out_hash = hasher.finish();
+
+        let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
+        for (_pub_out, sec_in) in hash_val.public_output_hashes_to_secret_ins.iter_mut() {
+            sec_in.retain(|e| *e != sec_in_hash);
+        }
+
+        hash_val.public_output_hashes_to_secret_ins.retain(|pub_out, sec_in| !sec_in.is_empty());
+
+        let mut removed_count = 0;
+        for (idx, hash) in hash_val.secret_input_hashes.clone().into_iter().enumerate() {
+            if hash == sec_in_hash {
+                let adjusted_idx = idx - removed_count;
+                let removed_pub_out = hash_val.public_output_hashes.remove(adjusted_idx);
+                hash_val.secret_input_hashes.remove(adjusted_idx);
+                removed_count += 1;
+
+                for (idx, sec_full) in hash_val.secret_inputs_full.clone().iter().enumerate() {
+                    if sec_full.get_hash() == sec_in_hash {
+                        assert!(hash_val.secret_inputs_full.len() == hash_val.public_outputs_full.len());
+                        assert!(hash_val.public_outputs_full[idx].get_hash() == removed_pub_out);
+                        hash_val.secret_inputs_full.remove(idx);
+                        hash_val.public_outputs_full.remove(idx);
+                        hash_val.public_output_hashes_to_secret_ins.remove(&removed_pub_out);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // if let Some(sec_ins) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
+        //     sec_ins.push(sec_in_hash);
+        // } else {
+        //     hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
+        // }
+
+        println!("Fixed incorrectly stored sec_in pub_out mapping");
+    }
+
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
@@ -657,12 +706,17 @@ where
         //     .map(|x| self.dict.get(x).unwrap())
         //     .filter(|x| x.hits >= MIN_HITS);
         // let (_sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 4 { 1 } else { 0 }));
-        let pub_ins_count = self.violation_pub_ins.iter()
-            .map(|x| self.dict.get(x).unwrap())
-            .fold(0usize, |acc, x| acc + if x.hits >= MIN_HITS { 1 } else { 0 });
-        let pub_in_prob = 1.0f64 / (pub_ins_count as f64);
+        let well_sampled_pub_ins_count = self.dict.iter()
+            .fold(0usize, |acc, (_pub_in_hash, hash_val)| {
+                acc + if hash_val.hits >= MIN_HITS { 1 } else { 0 }
+            });
+        // let pub_ins_count = self.violation_pub_ins.iter()
+        //     .map(|x| self.dict.get(x).unwrap())
+        //     .fold(0usize, |acc, x| acc + if x.hits >= MIN_HITS { 1 } else { 0 });
+        let pub_in_prob = 1.0f64 / (well_sampled_pub_ins_count as f64);
 
-        let valid_count = self.violation_pub_ins.iter().fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});
+        let valid_count = self.violation_pub_ins.iter()
+            .fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});
 
         let mut well_sampled = 0;
         for violation_pub_in_hash in &self.violation_pub_ins {
@@ -678,7 +732,7 @@ where
                 }
             }
 
-            if hash_val.uniform_pub_outs_to_sec_ins.len() == 0 {
+            if hash_val.uniform_pub_outs_to_sec_ins.is_empty() {
                 continue;
             }
 
@@ -690,10 +744,6 @@ where
                 .values()
                 .fold(0, |acc, x| acc + x.len());
 
-            if hash_val.uniform_pub_outs_to_sec_ins.len() > most_output_distinctions {
-                most_output_distinctions = hash_val.uniform_pub_outs_to_sec_ins.len();
-            }
-
             let mut entropy = 0_f64;
             for (_pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
                 let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
@@ -704,10 +754,16 @@ where
             let uniform_set = HashSet::from_iter(hash_val.uniform_pub_outs_to_sec_ins.keys());
             let diff = non_uniform_set.difference(&uniform_set);
 
-            for &&_pub_out in diff {
+            for &&_pub_out in diff.clone() {
                 let prob = pub_in_prob * (1f64 / sample_count as f64);
-                entropy += prob * prob.log2();
+                entropy += prob * (1.0f64 / prob).log2();
             }
+
+            let total_distinctions = hash_val.uniform_pub_outs_to_sec_ins.len() + diff.count();
+            if total_distinctions > most_output_distinctions {
+                most_output_distinctions = total_distinctions;
+            }
+
 
             output_violation_entropy_sum += entropy; 
         }

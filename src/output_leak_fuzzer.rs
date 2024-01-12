@@ -333,7 +333,7 @@ where
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
                 mark_feature_time!(state, PerfFeature::TargetExecution);
 
-                if cur_exit != exit_kind {
+                if cur_exit != exit_kind && cur_exit != ExitKind::Timeout && exit_kind != ExitKind::Timeout {
                     panic!("last time got exit: {:?}, this time ({}) got {:?}", exit_kind, i, cur_exit);
                 }
 
@@ -345,7 +345,10 @@ where
 
                 if output_data.stdout != *stdout || output_data.stderr != *stderr {
                     inconsistent = true;
-                    println!("Received inconsistent output on run {i}");
+                    println!("Received inconsistent output on run {i} \
+                        (stdout lens: {} vs {}, match: {}; stderr lens: {} vs {}, match: {})",
+                        output_data.stdout.len(), stdout.len(), output_data.stdout == *stdout,
+                        output_data.stderr.len(), stderr.len(), output_data.stderr == *stderr);
                     break;
                 }
             }
@@ -387,7 +390,13 @@ where
 
                 if output_data.stdout != *stdout || output_data.stderr != *stderr {
                     inconsistent = true;
-                    println!("Received inconsistent output on run {i}");
+                    println!("Received inconsistent output on run {i} \
+                        (orig exit: {:?}, this exit: {:?}) \
+                        (stdout lens: {} vs {}, match: {}; stderr lens: {} vs {}, match: {})",
+                        exit_kind, cur_exit,
+                        output_data.stdout.len(), stdout.len(), output_data.stdout == *stdout,
+                        output_data.stderr.len(), stderr.len(), output_data.stderr == *stderr);
+                    println!("stderr was: {}", String::from_utf8_lossy(&output_data.stderr.to_vec()));
                     // println!("Expected consistent output: {:?} {:?} but got {:?} {:?} on run {}", 
                     //     output_data.stdout, output_data.stderr, *stdout, *stderr, i);
                     break;
@@ -397,18 +406,22 @@ where
             if !inconsistent {
                 let res = self.hypertest_feedback.exposes_fault(&input, &output_data);
                 match res {
-                    Some((ref failing_hypertest, is_new_violation)) => { 
+                    Some((ref failing_hypertest, is_new_violation)) => 'store_hypertest: { 
                         if is_new_violation {
                             println!("Found new violation!");
                             assert!(failing_hypertest.test_one.0.get_public_input_hash() ==
                                     failing_hypertest.test_two.0.get_public_input_hash());
+                            if let Some(pub1) = failing_hypertest.test_one.0.get_part_bytes(InputContentsFlags::PublicExplicitInput) {
+                                assert!(*pub1 == *failing_hypertest.test_two.0.get_part_bytes(InputContentsFlags::PublicExplicitInput).unwrap());
+                            }
+                            // assert!(failing_hypertest.test_one.0.get_part_bytes)
                             assert!(failing_hypertest.test_one.1 != failing_hypertest.test_two.1);
                             let t1in = failing_hypertest.test_one.0.clone();
                             let t1out = failing_hypertest.test_one.1.clone();
                             let t2in = failing_hypertest.test_two.0.clone();
                             let t2out = failing_hypertest.test_two.1.clone();
 
-
+                            let mut expected_outputs_match = true;
                             for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
                                 *state.executions_mut() += 1;
                                 start_timer!(state);
@@ -423,14 +436,28 @@ where
                 
                                 let mut matched = true;
                                 if output_data.stdout != *stdout {
-                                    println!("Received differing output for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
+                                    println!("Received differing stdout for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
+                                        output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
                                     matched = false;
                                 }
                                 if output_data.stderr != *stderr {
-                                    println!("Received differing outinput for failing hypertest: expected len {}, got {} ({:?} vs {:?})", output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
+                                    println!("Received differing stderr for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
+                                        output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
                                     matched = false;
                                 }
-                                if matched { println!("Retested both inputs and got the expected outputs - seems this is a real violation"); }
+                                if matched { 
+                                    println!("Retested both inputs and got the expected outputs - seems this is a real violation"); }
+                                else { 
+                                    self.hypertest_feedback.fix_misstored_output(
+                                        &input, 
+                                        &OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() }
+                                    );
+                                    expected_outputs_match = false;
+                                }
+                            }
+
+                            if !expected_outputs_match { 
+                                break 'store_hypertest; 
                             }
 
                             macro_rules! maybe_truncate {
@@ -449,6 +476,7 @@ where
                                 }
                             }
 
+                            println!("  pub_in: {:?}", get_part!(t1in, InputContentsFlags::PublicExplicitInput));
                             println!("  test 1 in : {{ explicit_secret: {:?}, stack_mem: {:?}, heap_mem: {:?} }}", 
                                 get_part!(t1in, InputContentsFlags::SecretExplicitInput),
                                 get_part!(t1in, InputContentsFlags::SecretStackMemory),

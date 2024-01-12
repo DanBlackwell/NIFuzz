@@ -1,0 +1,28 @@
+EXTRA_DIST = \
+	all.xml \
+	generic-types.xml \
+	errors.xml \
+	vpn-errors.xml \
+	nm-access-point.xml \
+	nm-device-bt.xml \
+	nm-device-wifi.xml \
+	nm-device-olpc-mesh.xml \
+	nm-device-ethernet.xml \
+	nm-device-modem.xml \
+	nm-device-wimax.xml \
+	nm-device.xml \
+	nm-ip4-config.xml \
+	nm-ip6-config.xml \
+	nm-manager.xml \
+	nm-settings.xml \
+	nm-settings-connection.xml \
+	nm-vpn-plugin.xml \
+	nm-vpn-connection.xml \
+	nm-ppp-manager.xml \
+	nm-active-connection.xml \
+	nm-dhcp4-config.xml \
+	nm-dhcp6-config.xml \
+	nm-agent-manager.xml \
+	nm-wimax-nsp.xml \
+	nm-secret-agent.xml
+
