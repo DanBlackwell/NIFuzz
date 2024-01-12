@@ -540,7 +540,6 @@ where
                             .unwrap_or_else(|| &[])
                             .to_vec()
                     );
-                    println!("Added violation pub_in: {}", pub_in_hash);
                     self.violation_pub_ins.push(pub_in_hash);
                 }
 

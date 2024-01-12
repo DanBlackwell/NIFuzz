@@ -408,7 +408,7 @@ where
                 match res {
                     Some((ref failing_hypertest, is_new_violation)) => 'store_hypertest: { 
                         if is_new_violation {
-                            println!("Found new violation!");
+                            // println!("Found new violation!");
                             assert!(failing_hypertest.test_one.0.get_public_input_hash() ==
                                     failing_hypertest.test_two.0.get_public_input_hash());
                             if let Some(pub1) = failing_hypertest.test_one.0.get_part_bytes(InputContentsFlags::PublicExplicitInput) {
@@ -423,41 +423,44 @@ where
 
                             let mut expected_outputs_match = true;
                             for (input, output_data) in [(&t1in, &t1out), (&t2in, &t2out)] {
-                                *state.executions_mut() += 1;
-                                start_timer!(state);
-                                let _cur_exit = executor.run_target(self, state, manager, &input)?;
-                                mark_feature_time!(state, PerfFeature::TargetExecution);
-                               //  let cur_exit = self.execute_input(state, executor, manager, &input)?;
-                                let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+                                for _rep in 0..=10 {
+                                    *state.executions_mut() += 1;
+                                    start_timer!(state);
+                                    let _cur_exit = executor.run_target(self, state, manager, &input)?;
+                                    mark_feature_time!(state, PerfFeature::TargetExecution);
+                                    let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
 
-                                let empty = Vec::new();
-                                let stdout = match observer.stdout() { None => &empty, Some(o) => o };
-                                let stderr = match observer.stderr() { None => &empty, Some(o) => o };
-                
-                                let mut matched = true;
-                                if output_data.stdout != *stdout {
-                                    println!("Received differing stdout for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
-                                        output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
-                                    matched = false;
-                                }
-                                if output_data.stderr != *stderr {
-                                    println!("Received differing stderr for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
-                                        output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
-                                    matched = false;
-                                }
-                                if matched { 
-                                    println!("Retested both inputs and got the expected outputs - seems this is a real violation"); }
-                                else { 
-                                    self.hypertest_feedback.fix_misstored_output(
-                                        &input, 
-                                        &OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() }
-                                    );
-                                    expected_outputs_match = false;
+                                    let empty = Vec::new();
+                                    let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+                                    let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+                    
+                                    let mut matched = true;
+                                    if output_data.stdout != *stdout {
+                                        println!("Received differing stdout for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
+                                            output_data.stdout.len(), stdout.len(), output_data.stdout, stdout);
+                                        matched = false;
+                                    }
+                                    if output_data.stderr != *stderr {
+                                        println!("Received differing stderr for failing hypertest: expected len {}, got {} ({:?} vs {:?})", 
+                                            output_data.stderr.len(), stderr.len(), output_data.stderr, stderr);
+                                        matched = false;
+                                    }
+                                    if !matched { 
+                                        // for now this just clears this IO pair, so doesn't need the output data
+                                        self.hypertest_feedback.fix_misstored_output(
+                                            &input, 
+                                            &OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() }
+                                        );
+                                        expected_outputs_match = false;
+                                        break;
+                                    }
                                 }
                             }
 
                             if !expected_outputs_match { 
                                 break 'store_hypertest; 
+                            } else {
+                                println!("Retested both inputs and got the expected outputs - seems this is a real violation");
                             }
 
                             macro_rules! maybe_truncate {
@@ -521,6 +524,25 @@ where
                                         panic!("public input for new violation matched that at idx {:?}", idx);
                                     }
                                 }
+
+                                let violations_count = state.violations().count() + 1;
+                                match violations_count {
+                                    0..=100 => println!("Added violation pub_in: {} \
+                                        (now have {violations_count} violations)", quanti_input.get_public_input_hash()),
+                                    101..=1000 => if violations_count % 10 == 0 {
+                                        println!("Added new violation (bringing the total count to {violations_count})");
+                                    },
+                                    1001..=10000 => if violations_count % 100 == 0 {
+                                        println!("Added new violation (bringing the total count to {violations_count})");
+                                    },
+                                    10001..=100000 => if violations_count % 1000 == 0 {
+                                        println!("Added new violation (bringing the total count to {violations_count})");
+                                    },
+                                    _ => if violations_count % 10_000 == 0 {
+                                        println!("Added new violation (bringing the total count to {violations_count})");
+                                    },
+                                };
+
                                 self.hypertest_feedback_mut().create_leak_quantify_metadata_for(&quanti_input, &cloned_out);
                                 let new_testcase = Testcase::new(quanti_input);
                                 state.violations_mut().add(new_testcase).unwrap();
