@@ -639,11 +639,10 @@ where
         // let pub_out_hash = hasher.finish();
 
         let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
-        for (_pub_out, sec_in) in hash_val.public_output_hashes_to_secret_ins.iter_mut() {
+        hash_val.public_output_hashes_to_secret_ins.retain(|_pub_out, sec_in| {
             sec_in.retain(|e| *e != sec_in_hash);
-        }
-
-        hash_val.public_output_hashes_to_secret_ins.retain(|pub_out, sec_in| !sec_in.is_empty());
+            !sec_in.is_empty()
+        });
 
         let mut removed_count = 0;
         for (idx, hash) in hash_val.secret_input_hashes.clone().into_iter().enumerate() {
@@ -656,7 +655,12 @@ where
                 for (idx, sec_full) in hash_val.secret_inputs_full.clone().iter().enumerate() {
                     if sec_full.get_hash() == sec_in_hash {
                         assert!(hash_val.secret_inputs_full.len() == hash_val.public_outputs_full.len());
-                        assert!(hash_val.public_outputs_full[idx].get_hash() == removed_pub_out);
+                        if hash_val.public_outputs_full[idx].get_hash() != removed_pub_out {
+                            println!("expected public_outputs_full[{idx}].get_hash() to be {}, but was {} (all: {:?})",
+                                removed_pub_out, hash_val.public_outputs_full[idx].get_hash(),
+                                hash_val.public_outputs_full.clone().into_iter().map(|o| o.get_hash()).collect::<Vec<u64>>());
+                            panic!();
+                        }
                         hash_val.secret_inputs_full.remove(idx);
                         hash_val.public_outputs_full.remove(idx);
                         hash_val.public_output_hashes_to_secret_ins.remove(&removed_pub_out);
