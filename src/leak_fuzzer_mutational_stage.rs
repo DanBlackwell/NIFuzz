@@ -828,9 +828,9 @@ where
                 )
             };
 
-            println!("Flipping {} bits from possible {} ({:?})", 
-                bits_to_flip.len(), output_mapped_bits.len(), 
-                if bits_to_flip.len() > 20 { "omitted".to_string() } else { format!("{:?}", bits_to_flip) });
+            // println!("Flipping {} bits from possible {} ({:?})", 
+            //     bits_to_flip.len(), output_mapped_bits.len(), 
+            //     if bits_to_flip.len() > 20 { "omitted".to_string() } else { format!("{:?}", bits_to_flip) });
 
             let mut new_secrets = HashMap::new();
             for input_loc in &bits_to_flip {
@@ -863,8 +863,8 @@ where
                 .check_multibit_flip_result(&bits_to_flip, &output_flips);
 
             if passed {
-                println!("All output bit flips matched as expected, combos_since_failure: {} (exiting at {})",
-                    combos_since_failure, exit_checks_count);
+                // println!("All output bit flips matched as expected, combos_since_failure: {} (exiting at {})",
+                //     combos_since_failure, exit_checks_count);
                 combos_since_failure += 1;
             } else {
                 println!("resetting combos_since_failure to 0");

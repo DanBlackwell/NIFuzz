@@ -135,7 +135,8 @@ pub fn main() {
     // let output_feedback = OutputFeedback::new(&output_observer);
 
     // New maximization map feedback linked to the edges observer and the feedback state
-    let inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);
+    let mut inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);
+    inner_map.set_always_track(true);
     let map_feedback = StadsMapFeedback::new(inner_map);
 
     // Feedback to rate the interestingness of an input
