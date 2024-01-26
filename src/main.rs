@@ -126,7 +126,7 @@ pub fn main() {
 
     // Create an observation channel using the signals map
     let edges_observer =
-        unsafe { HitcountsMapObserver::new(StdMapObserver::new("shared_mem", shmem_buf)) };
+        unsafe { HitcountsMapObserver::new(StdMapObserver::new("hitcounts_map", shmem_buf)) };
 
     // Create an observation channel to keep track of the execution time
     let time_observer = TimeObserver::new("time");
@@ -135,8 +135,7 @@ pub fn main() {
     // let output_feedback = OutputFeedback::new(&output_observer);
 
     // New maximization map feedback linked to the edges observer and the feedback state
-    let mut inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);
-    inner_map.set_always_track(true);
+    let inner_map = MaxMapFeedback::tracking(&edges_observer, true, false);
     let map_feedback = StadsMapFeedback::new(inner_map);
 
     // Feedback to rate the interestingness of an input
@@ -212,7 +211,7 @@ pub fn main() {
     if let Some(dynamic_map_size) = forkserver.coverage_map_size() {
         forkserver
             .observers_mut()
-            .match_name_mut::<HitcountsMapObserver<StdMapObserver<'_, u8, false>>>("shared_mem")
+            .match_name_mut::<HitcountsMapObserver<StdMapObserver<'_, u8, false>>>("hitcounts_map")
             .unwrap()
             .truncate(dynamic_map_size);
     }

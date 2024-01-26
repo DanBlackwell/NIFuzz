@@ -5,7 +5,7 @@ authors = ["ergrelet <ergrelet@users.noreply.github.com>"]
 edition = "2021"
 
 [features]
-default = ["std", "introspection"]
+default = ["std"]
 std = []
 introspection = []
 # Forces a crash
@@ -25,7 +25,7 @@ which = { version = "4.0.2" }
 # libafl = { path = "../../libafl/", features = ["default"] }
 # libafl_targets = { path = "../../libafl_targets/" }
 # libafl_cc = { path = "../../libafl_cc/" }
-libafl = { version = "0.11.1", features = ["introspection", "default", "afl_exec_sec"] }
+libafl = { version = "0.11.1", features = ["default", "afl_exec_sec"] }
 libafl_targets = "0.11.1"
 libafl_cc = "0.11.1"
 libafl_bolts = "0.11.1"

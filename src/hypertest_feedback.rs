@@ -338,6 +338,9 @@ where
     /// input that we can use to calculate the probability of witnessing a particular output
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData);
 
+    /// Retrieve the number of unique outputs found by uniform sampling for a given public input
+    fn get_uniform_sampled_output_count(&self, input: &I) -> usize;
+
     /// Estimate the quantity of leakage (in bits) that has been witnessed so far
     fn estimate_leakage(&self) -> f64;
 
@@ -381,19 +384,16 @@ where
         let observer = output_observer;
 
         let empty = Vec::new();
-        let stdout = match observer.stdout() { None => &empty, Some(o) => o };
-        let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+        let stdout = match observer.stdout() { None => &empty, Some(o) => o }.to_owned();
+        let stderr = match observer.stderr() { None => &empty, Some(o) => o }.to_owned();
         if stdout.len() > 0 {
             // println!("stdout: {:?}", String::from_utf8_lossy(stdout));
         }
+        let output_data = OutputData { stdout, stderr };
 
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
-
-        let mut hasher = DefaultHasher::new();
-        stdout.hash(&mut hasher);
-        stderr.hash(&mut hasher);
-        let pub_out_hash = hasher.finish();
+        let pub_out_hash = output_data.get_hash();
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if let Some(full) = hash_val.public_input_full.as_ref() {
@@ -404,8 +404,6 @@ where
 
             hash_val.hits += 1;
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
-                let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
-
                 if hash_val.secret_input_hashes.contains(&sec_in_hash) {
                     return (true, Some(output_data));
                 }
@@ -442,7 +440,6 @@ where
                 }
 
                 if !already_stored {
-                    let output_data = OutputData { stdout: stdout.to_vec(), stderr: stderr.to_vec() };
                     return (true, Some(output_data));
                 }
             
@@ -479,11 +476,7 @@ where
     fn exposes_fault(&mut self, input: &I, output_data: &OutputData) -> Option<(FailingHypertest<'_, I>, bool)> {
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
-
-        let mut hasher = DefaultHasher::new();
-        output_data.stdout.hash(&mut hasher);
-        output_data.stderr.hash(&mut hasher);
-        let pub_out_hash = hasher.finish();
+        let pub_out_hash = output_data.get_hash();
 
         if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
             if !hash_val.public_output_hashes.contains(&pub_out_hash) {
@@ -682,11 +675,7 @@ where
     fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
-
-        let mut hasher = DefaultHasher::new();
-        output_data.stdout.hash(&mut hasher);
-        output_data.stderr.hash(&mut hasher);
-        let pub_out_hash = hasher.finish();
+        let pub_out_hash = output_data.get_hash();
 
         let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
         if let Some(existing) = hash_val.uniform_pub_outs_to_sec_ins.get_mut(&pub_out_hash) {
@@ -695,6 +684,12 @@ where
         } else {
             hash_val.uniform_pub_outs_to_sec_ins.insert(pub_out_hash, vec![sec_in_hash]);
         }
+    }
+
+    fn get_uniform_sampled_output_count(&self, input: &I) -> usize {
+        let pub_in_hash = input.get_public_input_hash();
+        let hash_val = self.dict.get(&pub_in_hash).unwrap();
+        hash_val.uniform_pub_outs_to_sec_ins.len()
     }
 
     fn estimate_leakage(&self) -> f64 {
@@ -780,7 +775,7 @@ where
             for (source, count) in bitflip_locations {
                 print!("{:?}: {}, ", source, count);
             }
-            println!("}}");
+            print!("}}");
         }
         println!("");
 

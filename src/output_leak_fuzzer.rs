@@ -329,6 +329,7 @@ where
 
             let mut inconsistent = false;
             for i in 0..3 {
+                *state.executions_mut() += 1;
                 start_timer!(state);
                 let cur_exit = self.execute_input(state, executor, manager, &input)?;
                 mark_feature_time!(state, PerfFeature::TargetExecution);
@@ -356,8 +357,10 @@ where
             if !inconsistent {
               match state.targeting_violations() {
                   ViolationsTargetingApproach::BitFlips => {},
-                  ViolationsTargetingApproach::UniformSampling => 
-                      self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data),
+                  ViolationsTargetingApproach::UniformSampling => {
+                      self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data);
+                      return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
+                  },
                   _ => panic!("unhandled case!")
               };
             }

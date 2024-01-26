@@ -77,6 +77,7 @@ where
             // We'll mutate the secret part of the input by selecting from uniform
             let idx = state.violations().current().unwrap();
             let mut testcase = state.violations().get(idx)?.borrow_mut();
+            let original_input = testcase.input().as_ref().unwrap().clone();
             let Ok(input) = I::try_transform_from(&mut testcase, state, idx) else { return Ok(()); };
             drop(testcase);
             mark_feature_time!(state, PerfFeature::GetInputFromCorpus);
@@ -88,12 +89,14 @@ where
                 ViolationsTargetingApproach::UniformSampling => {
                     #[cfg(feature = "std")]
                     let start_time = std::time::SystemTime::now();
-                    let mut iterations = 0;
+                    let mut total_iterations = 0;
+                    let mut iterations_since_find = 0;
+                    let mut unique_uniform_outputs = fuzzer.hypertest_feedback().get_uniform_sampled_output_count(&original_input);
 
                     loop {
                         let mut input = input.clone();
         
-                        let mutated = self.uniform_mutator.mutate(state, &mut input, iterations as i32)?;
+                        let mutated = self.uniform_mutator.mutate(state, &mut input, 0 as i32)?;
                         if mutated == MutationResult::Skipped { panic!("This mutator should never skip..."); }
                         
                         // Time is measured directly the `evaluate_input` function
@@ -102,19 +105,29 @@ where
                         let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
         
                         start_timer!(state);
-                        self.mutator_mut().post_exec(state, iterations as i32, corpus_idx)?;
-                        post.post_exec(state, iterations as i32, corpus_idx)?;
+                        self.mutator_mut().post_exec(state, 0 as i32, corpus_idx)?;
+                        post.post_exec(state, 0 as i32, corpus_idx)?;
                         mark_feature_time!(state, PerfFeature::MutatePostExec);
 
+                        let prev = unique_uniform_outputs;
+                        unique_uniform_outputs = fuzzer.hypertest_feedback().get_uniform_sampled_output_count(&original_input);
+                        total_iterations += 1;
+                        if unique_uniform_outputs > prev {
+                            iterations_since_find = 0;
+                        } else if iterations_since_find > 1000 {
+                            // println!("Escaping after finding {unique_uniform_outputs} unique outputs in {total_iterations} iterations");
+                            break;
+                        } else {
+                            iterations_since_find += 1;
+                        }
+
                         #[cfg(feature = "std")]
-                        if std::time::SystemTime::now().duration_since(start_time).unwrap().as_millis() > 10_000 {
+                        if std::time::SystemTime::now().duration_since(start_time).unwrap().as_millis() > 15_000 {
+                            // println!("15 seconds up! found {unique_uniform_outputs} unique outputs in {total_iterations} iterations");
                             break;
                         }
 
-                        iterations += 1;
-                        if iterations > 16 * 1024 {
-                            break;
-                        }
+
                     }
                 },
                 _ => panic!()
@@ -407,6 +420,7 @@ where
 
             // Ok, no one-to-many mappings so don't bother extending the input for now
             if max_dists.iter().filter(|(_, &extend_dist)| extend_dist > 0).count() == 0 {
+                println!("didn't find any need to extend");
                 if metadata.bitflip_flips_output_bits.mapped_inputs_counts().is_empty() {
                     metadata.bitflips_do_not_map = true;
                 }
@@ -543,26 +557,26 @@ where
     }
 
     pub fn retrieve_bitflip_differences(out1: &OutputData, out2: &OutputData) -> Vec<OutputBitLocation> {
-            let outputs = [
-                (OutputSource::Stdout, &out1.stdout, &out2.stdout),
-                (OutputSource::Stderr, &out2.stdout, &out2.stderr),
-            ];
+        let outputs = [
+            (OutputSource::Stdout, &out1.stdout, &out2.stdout),
+            (OutputSource::Stderr, &out2.stdout, &out2.stderr),
+        ];
 
-            let mut flipped_bits = vec![];
-            for (source, orig, new) in outputs {
-                // For each byte in the stdout output
-                for byte in 0..std::cmp::min(new.len(), orig.len()) {
-                    // Check if any bits differ
-                    let diff = new[byte] ^ orig[byte];
-                    for bit in 0..8 {
-                        if diff & (0x80 >> bit) != 0 {
-                            flipped_bits.push(OutputBitLocation { source, bit_num: 8 * byte + bit });
-                        }
+        let mut flipped_bits = vec![];
+        for (source, orig, new) in outputs {
+            // For each byte in the stdout output
+            for byte in 0..std::cmp::min(new.len(), orig.len()) {
+                // Check if any bits differ
+                let diff = new[byte] ^ orig[byte];
+                for bit in 0..8 {
+                    if diff & (0x80 >> bit) != 0 {
+                        flipped_bits.push(OutputBitLocation { source, bit_num: 8 * byte + bit });
                     }
                 }
             }
+        }
 
-            flipped_bits
+        flipped_bits
     }
 
     fn quick_find_all_bitflips(
