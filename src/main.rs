@@ -43,7 +43,7 @@ use crate::{
     leak_fuzzer_state::LeakFuzzerState, 
     leak_fuzzer_mutational_stage::LeakFuzzerMutationalStage, 
     leak_fuzzer_scheduler::RandLeakScheduler, 
-    STADS::StadsMapFeedback
+    STADS::StadsMapFeedback, pub_sec_mutations::UniformMutator
 };
 use output_leak_fuzzer::LeakFuzzer;
 use pub_sec_input::PubSecBytesInput;
@@ -88,6 +88,13 @@ struct Opt {
     //     default_value = "false"
     // )]
     // debug_child: bool,
+
+    #[arg(
+        help = "Enable estimation of Conditional Mutual Information (i.e. I(S;O|L) mutual info between secret input and public output, conditioned on public input)",
+        long = "cmi",
+        default_value = "false"
+    )]
+    cmi_estimate: bool,
 
     #[arg(
         help = "Arguments passed to the target",
@@ -173,6 +180,8 @@ pub fn main() {
         &mut feedback,
         // Same for objective feedbacks
         &mut objective,
+        /// enable estimate CMI mode if CLI flag set
+        opt.cmi_estimate,
     )
     .unwrap();
 
@@ -238,14 +247,20 @@ pub fn main() {
 
     state.add_metadata(tokens);
 
-    // Setup a mutational stage with a basic bytes mutator
-    let mutator =
-        StdScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
-        // LeakFuzzerScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
-    // let mut stages = tuple_list!(StdMutationalStage::new(mutator));
-    let mut stages = tuple_list!(LeakFuzzerMutationalStage::new(mutator));
-
-    fuzzer
-        .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
-        .expect("Error in the fuzzing loop");
+    // Note that as mutator is based on a tuple_list, the generics cannot handle this as one path
+    if opt.cmi_estimate { 
+        // Setup a mutational stage with a basic bytes mutator
+        let mutator = StdScheduledMutator::with_max_stack_pow(tuple_list!(UniformMutator::new()), 6);
+        let mut stages = tuple_list!(LeakFuzzerMutationalStage::new(mutator));
+        fuzzer
+            .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
+            .expect("Error in the fuzzing loop");
+    } else { 
+        // Setup a mutational stage with a basic bytes mutator
+        let mutator = StdScheduledMutator::with_max_stack_pow(pub_sec_mutations(), 6);
+        let mut stages = tuple_list!(LeakFuzzerMutationalStage::new(mutator));
+        fuzzer
+            .fuzz_loop(&mut stages, &mut executor, &mut state, &mut mgr)
+            .expect("Error in the fuzzing loop");
+    }
 }

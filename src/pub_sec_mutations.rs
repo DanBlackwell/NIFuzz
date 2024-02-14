@@ -26,16 +26,16 @@ use libafl::{
     },
     random_corpus_id,
     state::{HasCorpus, HasMaxSize, HasRand},
-    Error,
+    Error, inputs::Input,
 };
 
 use crate::pub_sec_input::{PubSecInput, MutateTarget, swap_bytes_in_ranges, InputContentsFlags};
 
 /// Bitflip mutation for inputs with a bytes vector
 #[derive(Default, Debug, Clone)]
-pub struct SecretUniformMutator;
+pub struct UniformMutator;
 
-impl<I, S> Mutator<I, S> for SecretUniformMutator
+impl<I, S> Mutator<I, S> for UniformMutator
 where
     S: HasRand,
     I: PubSecInput,
@@ -46,7 +46,13 @@ where
         input: &mut I,
         _stage_idx: i32,
     ) -> Result<MutationResult, Error> {
-        for part in [InputContentsFlags::SecretExplicitInput, InputContentsFlags::SecretStackMemory, InputContentsFlags::SecretHeapMemory] {
+        let parts = if input.get_current_mutate_target() == MutateTarget::PublicExplicitInput {
+            vec![InputContentsFlags::PublicExplicitInput]
+        } else {
+            vec![InputContentsFlags::SecretExplicitInput, InputContentsFlags::SecretStackMemory, InputContentsFlags::SecretHeapMemory]
+        };
+
+        for part in parts {
             if let Some(buf) = input.get_part_bytes(part) {
                 let mut uniform_buf = vec![];
                 while uniform_buf.len() < buf.len() {
@@ -60,14 +66,14 @@ where
     }
 }
 
-impl Named for SecretUniformMutator {
+impl Named for UniformMutator {
     fn name(&self) -> &str {
-        "SecretUniformMutator"
+        "UniformMutator"
     }
 }
 
-impl SecretUniformMutator {
-    /// Creates a new [`SecretUniformMutator`].
+impl UniformMutator {
+    /// Creates a new [`UniformMutator`].
     #[must_use]
     pub fn new() -> Self {
         Self

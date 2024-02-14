@@ -268,7 +268,7 @@ pub struct IOHashValue {
     pub public_output_hashes: Vec<u64>,
     /// Mapping from public_output_hashes to a vector of secret_in's
     /// that produce this public output
-    pub public_output_hashes_to_secret_ins: HashMap<u64, Vec<u64>>,
+    pub public_output_hashes_to_secret_ins: HashMap<u64, HashSet<u64>>,
 
     /// Metadata about all the leak quantification testing we have 
     /// done for this input
@@ -282,7 +282,7 @@ pub struct IOHashValue {
     /// witness a leak
     pub secret_inputs_full: Vec<SecretInputParts>,
     /// Vector of full public outputs that witness a leak
-    pub public_outputs_full: Vec<OutputData>
+    pub public_outputs_full: Vec<OutputData>,
 }
 
 impl IOHashValue {
@@ -336,7 +336,7 @@ where
 
     /// We already know that this input public part witnesses a violation, here is a uniform sampled secret
     /// input that we can use to calculate the probability of witnessing a particular output
-    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData);
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData, estimate_cmi_mode: bool);
 
     /// Retrieve the number of unique outputs found by uniform sampling for a given public input
     fn get_uniform_sampled_output_count(&self, input: &I) -> usize;
@@ -356,6 +356,7 @@ where
     fn create_leak_quantify_metadata_for(&mut self, input: &I, output_data: &OutputData);
 }
 pub struct STADSstatistics {
+    current_finds: usize,
     expected_finds: usize,
     correctness: f64
 }
@@ -446,7 +447,7 @@ where
             // We didn't find a new public_out, but we should update the mapping between public_out and secret_in
             } else {
                 if let Some(sec_ins) = hash_val.public_output_hashes_to_secret_ins.get_mut(&pub_out_hash) {
-                    sec_ins.push(sec_in_hash);
+                    sec_ins.insert(sec_in_hash);
                 } else {
                     panic!("Ow, this was a new public_out after all?");
                 }
@@ -460,7 +461,7 @@ where
                 hits: 1,
                 public_input_full: None,
                 uniform_pub_outs_to_sec_ins: HashMap::new(),
-                public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, vec![sec_in_hash])]),
+                public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, [sec_in_hash].into_iter().collect::<HashSet<u64>>())]),
                 public_input_hash: pub_in_hash,
                 public_output_hashes: vec![pub_out_hash],
                 public_outputs_full: Vec::new(),
@@ -522,7 +523,7 @@ where
                         hash_val.public_output_hashes_to_secret_ins.remove(&old_pub_out_hash); 
                     }
 
-                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
+                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, [sec_in_hash].into_iter().collect::<HashSet<u64>>());
 
                     return None;
                 }
@@ -546,7 +547,7 @@ where
                         hash_val.secret_input_hashes
                     );
                 } else {
-                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, vec![sec_in_hash]);
+                    hash_val.public_output_hashes_to_secret_ins.insert(pub_out_hash, [sec_in_hash].into_iter().collect::<HashSet<u64>>());
                 }
 
                 hash_val.secret_input_hashes.push(sec_in_hash);
@@ -672,17 +673,40 @@ where
         println!("Fixed incorrectly stored sec_in pub_out mapping");
     }
 
-    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData) {
+    fn store_uniform_sampled_secret_output(&mut self, input: &I, output_data: &OutputData, estimate_cmi_mode: bool) {
         let pub_in_hash = input.get_public_input_hash();
         let sec_in_hash = input.get_secret_input_hash();
         let pub_out_hash = output_data.get_hash();
 
-        let hash_val = self.dict.get_mut(&pub_in_hash).unwrap();
-        if let Some(existing) = hash_val.uniform_pub_outs_to_sec_ins.get_mut(&pub_out_hash) {
-            existing.push(sec_in_hash);
-            // println!("tested: (pub in len: {}) {:?}, got {:?} out", input.get_public_part_bytes().len(), input.get_secret_part_bytes(), String::from_utf8_lossy(stdout));
+        if let Some(hash_val) = self.dict.get_mut(&pub_in_hash) {
+            if estimate_cmi_mode {
+                hash_val.hits += 1;
+            }
+
+            if let Some(existing) = hash_val.uniform_pub_outs_to_sec_ins.get_mut(&pub_out_hash) {
+                existing.push(sec_in_hash);
+                // println!("tested: (pub in len: {}) {:?}, got {:?} out", input.get_public_part_bytes().len(), input.get_secret_part_bytes(), String::from_utf8_lossy(stdout));
+            } else {
+                hash_val.uniform_pub_outs_to_sec_ins.insert(pub_out_hash, vec![sec_in_hash]);
+
+                if estimate_cmi_mode && hash_val.uniform_pub_outs_to_sec_ins.len() == 2 {
+                    self.violation_pub_ins.push(pub_in_hash);
+                }
+            }
         } else {
-            hash_val.uniform_pub_outs_to_sec_ins.insert(pub_out_hash, vec![sec_in_hash]);
+            // this path will only run in cmi_estimate_mode
+            self.dict.insert(pub_in_hash, IOHashValue {
+                hits: 1,
+                public_input_full: None,
+                uniform_pub_outs_to_sec_ins: HashMap::from([(pub_out_hash, vec![sec_in_hash])]),
+                public_output_hashes_to_secret_ins: HashMap::from([(pub_out_hash, [sec_in_hash].into_iter().collect::<HashSet<u64>>())]),
+                public_input_hash: pub_in_hash,
+                public_output_hashes: vec![pub_out_hash],
+                public_outputs_full: Vec::new(),
+                secret_input_hashes: vec![sec_in_hash],
+                secret_inputs_full: Vec::new(),
+                leak_quantify_metadata: None
+            });
         }
     }
 
@@ -693,28 +717,20 @@ where
     }
 
     fn estimate_leakage(&self) -> f64 {
-        let mut output_violation_entropy_sum = 0.0_f64;
-        let mut violation_entropy_sum = 0.0_f64;
         let mut most_output_distinctions = 0;
         let mut most_bitflips_locations = None;
         let mut most_bitflips_leaked = 0;
         const MIN_HITS: usize = 4;
 
-        // let filtered = self.violation_pub_ins.iter()
-        //     .map(|x| self.dict.get(x).unwrap())
-        //     .filter(|x| x.hits >= MIN_HITS);
-        // let (_sum, well_sampled_pubs) = filtered.fold((0, 0), |(sum, len), x| (sum + x.hits, len + if x.hits > 4 { 1 } else { 0 }));
+        let mut output_violation_entropy_sum = 0f64;
+        let mut violation_entropy_sum = 0f64;
+
         let well_sampled_pub_ins_count = self.dict.iter()
             .fold(0usize, |acc, (_pub_in_hash, hash_val)| {
                 acc + if hash_val.hits >= MIN_HITS { 1 } else { 0 }
             });
-        // let pub_ins_count = self.violation_pub_ins.iter()
-        //     .map(|x| self.dict.get(x).unwrap())
-        //     .fold(0usize, |acc, x| acc + if x.hits >= MIN_HITS { 1 } else { 0 });
-        let pub_in_prob = 1.0f64 / (well_sampled_pub_ins_count as f64);
 
-        let valid_count = self.violation_pub_ins.iter()
-            .fold(0, |cnt, x| cnt + if self.dict.get(x).unwrap().uniform_pub_outs_to_sec_ins.len() > 1 {1} else {0});
+        let pub_in_prob = 1.0f64 / (well_sampled_pub_ins_count as f64);
 
         let mut well_sampled = 0;
         for violation_pub_in_hash in &self.violation_pub_ins {
@@ -742,7 +758,7 @@ where
                 .values()
                 .fold(0, |acc, x| acc + x.len());
 
-            let mut entropy = 0_f64;
+            let mut entropy = 0f64;
             for (_pub_out, sec_in) in &hash_val.uniform_pub_outs_to_sec_ins {
                 let prob = pub_in_prob * (sec_in.len() as f64 / sample_count as f64);
                 entropy += prob * prob.log2();
@@ -754,7 +770,7 @@ where
 
             for &&_pub_out in diff.clone() {
                 let prob = pub_in_prob * (1f64 / sample_count as f64);
-                entropy += prob * (1.0f64 / prob).log2();
+                entropy += prob * prob.log2();
             }
 
             let total_distinctions = hash_val.uniform_pub_outs_to_sec_ins.len() + diff.count();
@@ -762,14 +778,13 @@ where
                 most_output_distinctions = total_distinctions;
             }
 
-
             output_violation_entropy_sum += entropy; 
         }
 
         let leaked_info_bits = -output_violation_entropy_sum + violation_entropy_sum;
-        println!("Leaked {} bits from {} well sampled violations (violation entropy sum: {violation_entropy_sum}, sample_count: {well_sampled}), valid_count: {valid_count}", leaked_info_bits, well_sampled);
-
-        print!("Most bits leaked directly from input to output: {most_bitflips_leaked}.");
+        println!("Leakage statistics:");
+        println!("    CMI:             {leaked_info_bits} bits from {well_sampled} well sampled violations");
+        print!(  "    Bitflips:        {most_bitflips_leaked} is the most bits leaked directly from input to output.");
         if let Some(bitflip_locations) = most_bitflips_locations {
             print!(" From: {{");
             for (source, count) in bitflip_locations {
@@ -778,13 +793,12 @@ where
             print!("}}");
         }
         println!("");
-
-        println!("Max distinctions on output: {most_output_distinctions} (channel capacity: {:.02} bits)", (most_output_distinctions as f64).log2());
-
+        println!("    Maximal Leakage: {:.02} bits channel capacity; max distinctions on output: {most_output_distinctions}", (most_output_distinctions as f64).log2());
         let stats = self.stads_uniform_secrets_leakage();
-        println!("violation STADS: {{ expected_finds: {}, correctness: {} }}", stats.expected_finds, stats.correctness);
+        println!("    violation STADS: {{ current_finds: {}, expected_finds: {}, correctness: {} }}", stats.current_finds, stats.expected_finds, stats.correctness);
 
-        leaked_info_bits
+        // leaked_info_bits
+        0.0
     }
 
     fn get_next_violation_targeting_approach(&self, input: &I) -> ViolationsTargetingApproach {
@@ -857,16 +871,18 @@ impl<I> STADSfeedback for InfoLeakChecker<I> {
         let mut singletons = 0; 
         let mut doubletons = 0;
         let mut total_samples = 0;
+        let mut current_finds = 0;
 
         for pub_in in &self.violation_pub_ins {
             if let Ok(info) = self.get_sample_info_for_pub_in(*pub_in) {
                 singletons += info.singletons;
                 doubletons += info.doubletons;
                 total_samples += info.sample_count;
+                current_finds += info.species_count;
             }
         }
 
-        let expected_finds = self.violation_pub_ins.len() +
+        let expected_finds = current_finds +
             if doubletons > 0 {
                 (singletons * singletons) / (2 * doubletons)
             } else if singletons > 0 {
@@ -875,15 +891,17 @@ impl<I> STADSfeedback for InfoLeakChecker<I> {
                 0
             };
 
-        let correctness = singletons as f64 / total_samples as f64;
+        // let correctness = singletons as f64 / total_samples as f64;
+        let correctness = 1f64 - singletons as f64 / current_finds as f64;
 
-        STADSstatistics { expected_finds, correctness }
+        STADSstatistics { current_finds, expected_finds, correctness }
     }
 }
 
 struct SamplesInfo {
     singletons: usize,
     doubletons: usize,
+    species_count: usize,
     sample_count: usize
 }
 
@@ -891,12 +909,14 @@ impl<I> InfoLeakChecker<I> {
     fn get_sample_info_for_pub_in(&self, pub_in: u64) -> Result<SamplesInfo, libafl::Error> {
         let mut singletons = 0;
         let mut doubletons = 0;
+        let mut species_count = 0;
 
         let hash_val = self.dict.get(&pub_in)
             .ok_or(libafl::Error::KeyNotFound(pub_in.to_string(), ErrorBacktrace::new()))?;
 
         let mut sample_count = 0;
         for (_pub_out, sec_ins) in &hash_val.uniform_pub_outs_to_sec_ins {
+            species_count += 1; 
             match sec_ins.len() {
                 1 => singletons += 1,
                 2 => doubletons += 1,
@@ -919,6 +939,6 @@ impl<I> InfoLeakChecker<I> {
             // println!("violation: {pub_in}, actual_finds: {}, expected: {expected_finds}, correctness: {correctness}", hash_val.uniform_pub_outs_to_sec_ins.len());
         }
 
-        Ok(SamplesInfo { singletons, doubletons, sample_count })
+        Ok(SamplesInfo { singletons, doubletons, species_count, sample_count })
     }
 }

@@ -20,7 +20,7 @@ use libafl::{
 use libafl_bolts::{rands::Rand, tuples::MatchName};
 use crate::{
     leak_fuzzer_state::{HasViolations, ViolationsTargetingApproach}, 
-    pub_sec_mutations::SecretUniformMutator, 
+    pub_sec_mutations::UniformMutator, 
     pub_sec_input::{PubSecInput, MutateTarget, InputContentsFlags}, 
     output_leak_fuzzer::HasHypertestFeedback, 
     hypertest_feedback::{HypertestFeedback, BitflipMap, InputBitLocation, OutputBitLocation}, output_feedback::{OutputSource, OutputData}, output_observer::OutputObserver
@@ -30,7 +30,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct LeakFuzzerMutationalStage<E, EM, I, M, Z> {
     mutator: M,
-    uniform_mutator: SecretUniformMutator,
+    uniform_mutator: UniformMutator,
     #[allow(clippy::type_complexity)]
     phantom: PhantomData<(E, EM, I, Z)>,
 }
@@ -96,6 +96,7 @@ where
                     loop {
                         let mut input = input.clone();
         
+                        input.set_current_mutate_target(MutateTarget::SecretExplicitInput);
                         let mutated = self.uniform_mutator.mutate(state, &mut input, 0 as i32)?;
                         if mutated == MutationResult::Skipped { panic!("This mutator should never skip..."); }
                         
@@ -166,14 +167,16 @@ where
             }
         }
 
-        let mut testcase = state.corpus().get(corpus_idx)?.borrow_mut();
-        let input_ref = testcase.input_mut().as_mut().unwrap();
-        let next_target = match input_ref.get_current_mutate_target() {
-            MutateTarget::All => MutateTarget::PublicExplicitInput,
-            MutateTarget::PublicExplicitInput => MutateTarget::All,
-            _ => MutateTarget::All, // this case only occurs if a new testcase was stored during Secret mutation
-        };
-        input_ref.set_current_mutate_target(next_target);
+        if !state.estimate_cmi_mode() {
+            let mut testcase = state.corpus().get(corpus_idx)?.borrow_mut();
+            let input_ref = testcase.input_mut().as_mut().unwrap();
+            let next_target = match input_ref.get_current_mutate_target() {
+                MutateTarget::All => MutateTarget::PublicExplicitInput,
+                MutateTarget::PublicExplicitInput => MutateTarget::All,
+                _ => MutateTarget::All, // this case only occurs if a new testcase was stored during Secret mutation
+            };
+            input_ref.set_current_mutate_target(next_target);
+        }
 
         Ok(())
     }
@@ -245,7 +248,7 @@ where
     pub fn transforming(mutator: M) -> Self {
         Self {
             mutator,
-            uniform_mutator: SecretUniformMutator::new(),
+            uniform_mutator: UniformMutator::new(),
             phantom: PhantomData,
         }
     }
@@ -317,7 +320,8 @@ where
 
 
             if phase == 0 { cached_input = input.clone(); }
-            phase = (phase + 1) % 3;
+            let max_phases = if state.estimate_cmi_mode() { 50 } else { 3 };
+            phase = (phase + 1) % max_phases;
    
             // Time is measured directly the `evaluate_input` function
             let (untransformed, post) = input.try_transform_into(state)?;

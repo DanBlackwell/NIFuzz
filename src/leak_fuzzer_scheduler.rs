@@ -50,14 +50,14 @@ where
         if state.corpus().count() == 0 {
             Err(Error::empty("No entries in corpus".to_owned()))
         } else {
-            if state.targeting_violations() != ViolationsTargetingApproach::None {
-                let next = random_corpus_id!(state.violations(), state.rand_mut());
-                *state.violations_mut().current_mut() = Some(next);
-                Ok(next)
-            } else {
+            if state.targeting_violations() == ViolationsTargetingApproach::None {
                 let id = random_corpus_id!(state.corpus(), state.rand_mut());
                 self.set_current_scheduled(state, Some(id))?;
                 Ok(id)
+            } else {
+                let next = random_corpus_id!(state.violations(), state.rand_mut());
+                *state.violations_mut().current_mut() = Some(next);
+                Ok(next)
             }
         }
     }

@@ -80,6 +80,8 @@ pub struct LeakFuzzerState<I, C, R, SC, VC> {
     /// The last time we reported progress (if available/used).
     /// This information is used by fuzzer `maybe_report_progress`.
     last_report_time: Option<Duration>,
+    /// Has the estimate CMI mode been enabled? (from CLI)
+    estimate_cmi_mode: bool,
     phantom: PhantomData<I>,
 }
 
@@ -104,6 +106,9 @@ pub trait HasViolations: UsesInput {
     fn targeting_violations(&self) -> ViolationsTargetingApproach;
     /// Set bool indicating whether we are targeting violations or corpus
     fn set_targeting_violations(&mut self, targeting_violations: ViolationsTargetingApproach);
+
+    /// return a bool indicating whether we are in 'estimate CMI' mode (i.e. uniform sampling)
+    fn estimate_cmi_mode(&self) -> bool;
 }
 
 impl<I, C, R, SC, VC> HasLastReportTime for LeakFuzzerState<I, C, R, SC, VC> {
@@ -146,6 +151,10 @@ where
 
     fn set_targeting_violations(&mut self, targeting_violations: ViolationsTargetingApproach) {
         self.targeting_violations = targeting_violations;
+    }
+
+    fn estimate_cmi_mode(&self) -> bool {
+        self.estimate_cmi_mode
     }
 }
 
@@ -651,6 +660,7 @@ where
         violations: VC,
         feedback: &mut F,
         objective: &mut O,
+        estimate_cmi_mode: bool,
     ) -> Result<Self, Error>
     where
         F: Feedback<Self>,
@@ -672,6 +682,7 @@ where
             #[cfg(feature = "std")]
             remaining_initial_files: None,
             last_report_time: None,
+            estimate_cmi_mode,
             phantom: PhantomData,
         };
         feedback.init_state(&mut state)?;

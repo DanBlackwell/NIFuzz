@@ -320,6 +320,20 @@ where
 
         self.scheduler.on_evaluation(state, &input, executor.observers())?;
 
+        if state.estimate_cmi_mode() {
+            let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
+            let empty = Vec::new();
+            let stdout = match observer.stdout() { None => &empty, Some(o) => o };
+            let stderr = match observer.stderr() { None => &empty, Some(o) => o };
+            let output_data = OutputData { stdout: stdout.to_owned(), stderr: stderr.to_owned() };
+            self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data, state.estimate_cmi_mode());
+
+            if state.executions() % 10_000 == 0 {
+                self.hypertest_feedback.estimate_leakage();
+            }
+            return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
+        }
+
         if state.targeting_violations() != ViolationsTargetingApproach::None {
             let observer = executor.observers().match_name::<OutputObserver>("output").unwrap();
             let empty = Vec::new();
@@ -355,14 +369,14 @@ where
             }
 
             if !inconsistent {
-              match state.targeting_violations() {
-                  ViolationsTargetingApproach::BitFlips => {},
-                  ViolationsTargetingApproach::UniformSampling => {
-                      self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data);
-                      return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
-                  },
-                  _ => panic!("unhandled case!")
-              };
+                match state.targeting_violations() {
+                    ViolationsTargetingApproach::BitFlips => {},
+                    ViolationsTargetingApproach::UniformSampling => {
+                        self.hypertest_feedback.store_uniform_sampled_secret_output(&input, &output_data, state.estimate_cmi_mode());
+                        return self.process_execution(state, manager, input, executor.observers(), &exit_kind, send_events);
+                    },
+                    _ => panic!("unhandled case!")
+                };
             }
         }
 
