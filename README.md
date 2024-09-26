@@ -1,6 +1,6 @@
-# QuantiLeakFuzzer
+# NIFuzz
 
-Note that this repo can use a locally modified version of [https://github.com/AFLplusplus/LibAFL](LibAFL), to do this place this repo in the directory `./fuzzers/[QuantiLeakFuzzer]`. By default it pulls LibAFL from cargo.
+Note that this repo can use a locally modified version of [https://github.com/AFLplusplus/LibAFL](LibAFL), to do this place this repo in the directory `./fuzzers/[NIFuzz]`. By default it pulls LibAFL from cargo.
 
 It can be built with `cargo build` and `cargo make run` builds the fuzzer then fuzzes the program `src/program.c`.
 
@@ -26,7 +26,7 @@ HEAP_MEM_IN
 HEAP_MEM_LEN
 ```
 
-for example, the following program uses all features of QuantiLeakFuzzer:
+for example, the following program uses all features of NIFuzz:
 
 ```C
 #include "memory.h" // this gives us the stack and heap filling tools

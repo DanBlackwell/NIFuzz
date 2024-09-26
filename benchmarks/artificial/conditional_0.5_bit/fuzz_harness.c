@@ -30,12 +30,10 @@ int main(int argc, char **argv)
   // handle SECRET
   if (EXPLICIT_SECRET_LEN < sizeof(secret)) { return 1; }
   secret = *(unsigned int *)EXPLICIT_SECRET_IN;
-  initHeapMemFillBuf(HEAP_MEM_IN, HEAP_MEM_LEN);
-  FILL_STACK(STACK_MEM_IN, STACK_MEM_LEN);
 
   // execute the function
   unsigned int res = target_func(public, secret); 
-  printf("Result: %u\n", res);
+  write(1, &res, sizeof(res));
 
   return 0;
 }

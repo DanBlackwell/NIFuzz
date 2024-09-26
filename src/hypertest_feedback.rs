@@ -891,8 +891,8 @@ impl<I> STADSfeedback for InfoLeakChecker<I> {
                 0
             };
 
-        // let correctness = singletons as f64 / total_samples as f64;
-        let correctness = 1f64 - singletons as f64 / current_finds as f64;
+        let correctness = singletons as f64 / total_samples as f64;
+        // let correctness = 1f64 - singletons as f64 / current_finds as f64;
 
         STADSstatistics { current_finds, expected_finds, correctness }
     }

@@ -278,9 +278,13 @@ where
         original_input.set_current_mutate_target(MutateTarget::PublicExplicitInput);
         let mut cached_input = input.clone();
    
-        let num = self.iterations(state, corpus_idx)?;
+        let num = if state.estimate_cmi_mode() {
+            100_000
+        } else {
+            2 * self.iterations(state, corpus_idx).unwrap()
+        };
         // do double the number of iterations to generate and test `num` hypertests
-        for i in 0..(num * 2) {
+        for i in 0..num {
             let mut input = match phase {
                 0 => {
                     original_input.clone()
@@ -319,10 +323,10 @@ where
             }
 
 
-            if phase == 0 { cached_input = input.clone(); }
-            let max_phases = if state.estimate_cmi_mode() { 50 } else { 3 };
+            if phase == 0 { cached_input = input.clone(); println!("public: {:?}", input.get_part_bytes(InputContentsFlags::PublicExplicitInput))}
+            let max_phases = if state.estimate_cmi_mode() { 100_000 } else { 3 };
             phase = (phase + 1) % max_phases;
-   
+
             // Time is measured directly the `evaluate_input` function
             let (untransformed, post) = input.try_transform_into(state)?;
             let (_, corpus_idx) = fuzzer.evaluate_input(state, executor, manager, untransformed)?;
